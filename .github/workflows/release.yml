@@ -66,18 +66,8 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu
       
-      - name: 安装交叉编译工具
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config libssl-dev
-      
-      - name: 配置 Cargo
-        run: |
-          mkdir -p .cargo
-          cat > .cargo/config.toml << 'EOF'
-          [target.aarch64-unknown-linux-gnu]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
+      - name: 安装 cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
       
       - name: 缓存 Cargo
         uses: actions/cache@v4
@@ -89,9 +79,7 @@ jobs:
           key: ${{ runner.os }}-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
       
       - name: 构建 Release
-        run: cargo build --release --target aarch64-unknown-linux-gnu
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cross build --release --target aarch64-unknown-linux-gnu
       
       - name: 打包
         run: |
