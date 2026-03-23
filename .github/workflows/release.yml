@@ -55,44 +55,6 @@ jobs:
           name: kaf-cli-linux-x86_64
           path: kaf-cli-linux-x86_64.tar.gz
 
-  # 构建 Linux aarch64
-  build-linux-aarch64:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: 安装 Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-gnu
-      
-      - name: 安装 cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-      
-      - name: 缓存 Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: 构建 Release
-        run: cross build --release --target aarch64-unknown-linux-gnu
-      
-      - name: 打包
-        run: |
-          cd target/aarch64-unknown-linux-gnu/release
-          tar czvf ../../../kaf-cli-linux-aarch64.tar.gz kaf-cli
-          cd ../../..
-      
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: kaf-cli-linux-aarch64
-          path: kaf-cli-linux-aarch64.tar.gz
-
   # 构建 macOS x86_64
   build-macos-x86_64:
     runs-on: macos-latest
@@ -237,7 +199,6 @@ jobs:
   release:
     needs:
       - build-linux-x86_64
-      - build-linux-aarch64
       - build-macos-x86_64
       - build-macos-aarch64
       - build-windows-x86_64
@@ -269,12 +230,7 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "### Linux" >> CHANGELOG.md
           echo '```bash' >> CHANGELOG.md
-          echo "# x86_64" >> CHANGELOG.md
           echo "tar xzvf kaf-cli-linux-x86_64.tar.gz" >> CHANGELOG.md
-          echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "# aarch64" >> CHANGELOG.md
-          echo "tar xzvf kaf-cli-linux-aarch64.tar.gz" >> CHANGELOG.md
           echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
           echo '```' >> CHANGELOG.md
           echo "" >> CHANGELOG.md
