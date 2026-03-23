@@ -1,0 +1,317 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # 构建 Linux x86_64
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+      
+      - name: 构建 Release
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+      
+      - name: 打包
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          tar czvf ../../../kaf-cli-linux-x86_64.tar.gz kaf-cli
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-linux-x86_64
+          path: kaf-cli-linux-x86_64.tar.gz
+
+  # 构建 Linux aarch64
+  build-linux-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      
+      - name: 安装交叉编译工具
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config libssl-dev
+      
+      - name: 配置 Cargo
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << 'EOF'
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          EOF
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 构建 Release
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      
+      - name: 打包
+        run: |
+          cd target/aarch64-unknown-linux-gnu/release
+          tar czvf ../../../kaf-cli-linux-aarch64.tar.gz kaf-cli
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-linux-aarch64
+          path: kaf-cli-linux-aarch64.tar.gz
+
+  # 构建 macOS x86_64
+  build-macos-x86_64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-x86_64-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 构建 Release
+        run: cargo build --release --target x86_64-apple-darwin
+      
+      - name: 打包
+        run: |
+          cd target/x86_64-apple-darwin/release
+          tar czvf ../../../kaf-cli-macos-x86_64.tar.gz kaf-cli
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-macos-x86_64
+          path: kaf-cli-macos-x86_64.tar.gz
+
+  # 构建 macOS aarch64 (Apple Silicon)
+  build-macos-aarch64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 构建 Release
+        run: cargo build --release --target aarch64-apple-darwin
+      
+      - name: 打包
+        run: |
+          cd target/aarch64-apple-darwin/release
+          tar czvf ../../../kaf-cli-macos-aarch64.tar.gz kaf-cli
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-macos-aarch64
+          path: kaf-cli-macos-aarch64.tar.gz
+
+  # 构建 Windows x86_64
+  build-windows-x86_64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 构建 Release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+      
+      - name: 打包
+        run: |
+          cd target/x86_64-pc-windows-msvc/release
+          7z a ../../../kaf-cli-windows-x86_64.zip kaf-cli.exe
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-windows-x86_64
+          path: kaf-cli-windows-x86_64.zip
+
+  # 构建 Windows aarch64
+  build-windows-aarch64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      
+      - name: 缓存 Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: 构建 Release
+        run: cargo build --release --target aarch64-pc-windows-msvc
+      
+      - name: 打包
+        run: |
+          cd target/aarch64-pc-windows-msvc/release
+          7z a ../../../kaf-cli-windows-aarch64.zip kaf-cli.exe
+          cd ../../..
+      
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: kaf-cli-windows-aarch64
+          path: kaf-cli-windows-aarch64.zip
+
+  # 创建 GitHub Release
+  release:
+    needs:
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-macos-x86_64
+      - build-macos-aarch64
+      - build-windows-x86_64
+      - build-windows-aarch64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: 下载所有产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: kaf-cli-*
+          merge-multiple: true
+      
+      - name: 生成 Changelog
+        id: changelog
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.ref_name }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          echo "## 安装说明" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Linux" >> CHANGELOG.md
+          echo '```bash' >> CHANGELOG.md
+          echo "# x86_64" >> CHANGELOG.md
+          echo "tar xzvf kaf-cli-linux-x86_64.tar.gz" >> CHANGELOG.md
+          echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "# aarch64" >> CHANGELOG.md
+          echo "tar xzvf kaf-cli-linux-aarch64.tar.gz" >> CHANGELOG.md
+          echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
+          echo '```' >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### macOS" >> CHANGELOG.md
+          echo '```bash' >> CHANGELOG.md
+          echo "# x86_64" >> CHANGELOG.md
+          echo "tar xzvf kaf-cli-macos-x86_64.tar.gz" >> CHANGELOG.md
+          echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "# Apple Silicon (M1/M2/M3)" >> CHANGELOG.md
+          echo "tar xzvf kaf-cli-macos-aarch64.tar.gz" >> CHANGELOG.md
+          echo "sudo mv kaf-cli /usr/local/bin/" >> CHANGELOG.md
+          echo '```' >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Windows" >> CHANGELOG.md
+          echo "解压 zip 文件并将 kaf-cli.exe 添加到 PATH" >> CHANGELOG.md
+      
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.changelog.outputs.version }}
+          name: Release ${{ steps.changelog.outputs.version }}
+          body_path: CHANGELOG.md
+          files: artifacts/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

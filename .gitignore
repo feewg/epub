@@ -1,0 +1,5 @@
+target/
+*.epub
+tmp*
+test*
+.pi/

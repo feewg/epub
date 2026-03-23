@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:title>测试小说</dc:title>
+    <dc:language>zh</dc:language>
+    <dc:creator>测试作者</dc:creator>
+    <dc:identifier id="bookid">urn:uuid:5c906f8f-2611-4f5e-8a80-2f502e7ee3f8</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="chapter_000" href="OEBPS/text/chapter_000.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter_001" href="OEBPS/text/chapter_001.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter_002" href="OEBPS/text/chapter_002.xhtml" media-type="application/xhtml+xml"/>
+    <item id="style" href="OEBPS/styles/style.css" media-type="text/css"/>
+
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="chapter_000"/>
+    <itemref idref="chapter_001"/>
+    <itemref idref="chapter_002"/>
+
+  </spine>
+</package>
