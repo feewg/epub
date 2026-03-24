@@ -1,5 +1,8 @@
 target/
 *.epub
 tmp*
-test*
 .pi/
+temp*
+test_novel*.txt
+test_complex*.txt
+kaf_test*.yaml

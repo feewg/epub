@@ -8,6 +8,7 @@ use image::ImageFormat;
 use std::path::Path;
 
 /// 从封面源获取封面图片数据
+#[allow(dead_code)]
 pub async fn fetch_cover(cover: &CoverSource) -> Result<Vec<u8>> {
     match cover {
         CoverSource::Local { path } => fetch_local_cover(path),
@@ -15,6 +16,7 @@ pub async fn fetch_cover(cover: &CoverSource) -> Result<Vec<u8>> {
 }
 
 /// 读取本地封面图片
+#[allow(dead_code)]
 pub fn fetch_local_cover(path: &Path) -> Result<Vec<u8>> {
     if !path.exists() {
         return Err(KafError::FileNotFound(
@@ -32,7 +34,8 @@ pub fn fetch_local_cover(path: &Path) -> Result<Vec<u8>> {
 }
 
 /// 转换图片格式为 JPEG
-pub fn convert_to_jpeg(data: &[u8], _quality: u8) -> Result<Vec<u8>> {
+#[allow(dead_code)]
+pub fn convert_to_jpeg(data: &[u8]) -> Result<Vec<u8>> {
     let img = image::load_from_memory(data)?;
 
     let mut buffer = Vec::new();
@@ -56,7 +59,7 @@ mod tests {
         img.write_to(&mut cursor, ImageFormat::Png).unwrap();
 
         // 转换为 JPEG
-        let jpeg = convert_to_jpeg(&buffer, 85).unwrap();
+        let jpeg = convert_to_jpeg(&buffer).unwrap();
         assert!(!jpeg.is_empty());
 
         // 验证是有效的 JPEG

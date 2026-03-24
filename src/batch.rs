@@ -20,6 +20,7 @@ pub struct BatchResult {
     /// 失败的书籍
     pub failed: Vec<(PathBuf, String)>,
     /// 总耗时（秒）
+    #[allow(dead_code)]
     pub elapsed_secs: f64,
 }
 
@@ -36,6 +37,7 @@ impl FolderScanner {
     }
 
     /// 扫描文件夹，返回所有 TXT 文件
+    #[allow(dead_code)]
     pub fn scan(&self) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         self.scan_directory(&self.root, &mut files)?;
@@ -43,6 +45,7 @@ impl FolderScanner {
     }
 
     /// 扫描目录
+    #[allow(dead_code)]
     fn scan_directory(&self, dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -129,11 +132,13 @@ impl FolderScanner {
 }
 
 /// 批量转换器
+#[allow(dead_code)]
 pub struct BatchConverter {
     /// 并发数
     concurrency: usize,
 }
 
+#[allow(dead_code)]
 impl BatchConverter {
     /// 创建新的批量转换器
     pub fn new(concurrency: usize) -> Self {
@@ -141,13 +146,14 @@ impl BatchConverter {
     }
 
     /// 执行批量转换
+    #[allow(dead_code)]
     pub async fn convert(&self, books: Vec<Book>) -> BatchResult {
         let start = std::time::Instant::now();
         let semaphore = Arc::new(Semaphore::new(self.concurrency));
         let mut tasks = Vec::new();
 
         for book in books {
-            let permit = semaphore.clone().acquire_owned().await.ok();
+            let _permit = semaphore.clone().acquire_owned().await.ok();
             let task = tokio::spawn(async move {
                 let filename = book.filename.clone();
                 let bookname = book.bookname.clone().unwrap_or_default();
@@ -194,6 +200,7 @@ impl BatchConverter {
     }
 
     /// 转换单个书籍
+    #[allow(dead_code)]
     async fn convert_single(book: Book) -> Result<PathBuf> {
         let filename = book.filename.clone();
         let output_name = book.output_name.clone().unwrap_or_else(|| {

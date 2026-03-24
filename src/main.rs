@@ -13,16 +13,15 @@ mod utils;
 
 use clap::Parser as ClapParser;
 use config::{generate_example_config, load_config};
-use converter::EpubConverter3;
 use error::{KafError, Result};
 use parser::Parser;
 use tracing::{error, info};
-use tracing_subscriber;
+use tracing_subscriber::fmt;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // 初始化日志
-    tracing_subscriber::fmt::init();
+    fmt::init();
 
     // 解析命令行参数
     let cli: cli::Cli = ClapParser::parse();

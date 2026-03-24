@@ -13,32 +13,8 @@ pub fn detect_and_convert(content: &[u8]) -> Result<String> {
         return Ok(text.to_string());
     }
 
-    // 2. 尝试 UTF-8
-    if let Ok(text) = std::str::from_utf8(content) {
-        // 检查是否有无效字符
-        if !text.contains('\u{FFFD}') {
-            return Ok(text.to_string());
-        }
-    }
-
-    // 3. 检测 GBK/GB18030
-    let mut gbk_decoder = GBK.new_decoder();
-    let mut gbk_text = String::new();
-    let (gbk_result, _, gbk_used) = gbk_decoder.decode_to_str_without_replacement(content, &mut gbk_text, false);
-    if gbk_result == encoding_rs::DecoderResult::InputEmpty && gbk_used == content.len() && !gbk_text.contains('\u{FFFD}') {
-        return Ok(gbk_text);
-    }
-
-    // 4. 检测 Big5
-    let mut big5_decoder = BIG5.new_decoder();
-    let mut big5_text = String::new();
-    let (big5_result, _, big5_used) = big5_decoder.decode_to_str_without_replacement(content, &mut big5_text, false);
-    if big5_result == encoding_rs::DecoderResult::InputEmpty && big5_used == content.len() && !big5_text.contains('\u{FFFD}') {
-        return Ok(big5_text);
-    }
-
-    // 5. 尝试所有编码
-    for encoding in [GBK, BIG5, UTF_8] {
+    // 2. 尝试所有编码（按常见程度排序）
+    for encoding in [UTF_8, GBK, BIG5] {
         let mut decoder = encoding.new_decoder();
         let mut text = String::new();
         let (result, _, used) = decoder.decode_to_str_without_replacement(content, &mut text, false);
@@ -47,7 +23,7 @@ pub fn detect_and_convert(content: &[u8]) -> Result<String> {
         }
     }
 
-    // 6. 最后的回退：UTF-8 with replacement
+    // 3. 最后的回退：UTF-8 with replacement
     let (text, _) = UTF_8.decode_with_bom_removal(content);
     Ok(text.to_string())
 }
@@ -62,6 +38,7 @@ pub fn ensure_no_bom(text: &str) -> String {
 }
 
 /// 清理文本，确保输出是纯 UTF-8 无 BOM
+#[allow(dead_code)]
 pub fn clean_utf8_output(text: &str) -> String {
     let no_bom = ensure_no_bom(text);
     // 确保没有其他的控制字符（保留正常换行和制表）
@@ -71,33 +48,21 @@ pub fn clean_utf8_output(text: &str) -> String {
 }
 
 /// 检测文件编码（不转换）
+#[allow(dead_code)]
 pub fn detect_encoding(content: &[u8]) -> &'static Encoding {
     // 检测 BOM
     if content.starts_with(&[0xEF, 0xBB, 0xBF]) {
         return UTF_8;
     }
 
-    // 尝试 UTF-8
-    if let Ok(text) = std::str::from_utf8(content) {
-        if !text.contains('\u{FFFD}') {
-            return UTF_8;
+    // 尝试所有编码（按常见程度排序）
+    for encoding in [UTF_8, GBK, BIG5] {
+        let mut decoder = encoding.new_decoder();
+        let mut text = String::new();
+        let (_, _, used) = decoder.decode_to_str_without_replacement(content, &mut text, false);
+        if used == content.len() && !text.contains('\u{FFFD}') {
+            return encoding;
         }
-    }
-
-    // 检测 GBK/GB18030
-    let mut gbk_decoder = GBK.new_decoder();
-    let mut gbk_text = String::new();
-    let (_, _, gbk_used) = gbk_decoder.decode_to_str_without_replacement(content, &mut gbk_text, false);
-    if gbk_used == content.len() && !gbk_text.contains('\u{FFFD}') {
-        return GBK;
-    }
-
-    // 检测 Big5
-    let mut big5_decoder = BIG5.new_decoder();
-    let mut big5_text = String::new();
-    let (_, _, big5_used) = big5_decoder.decode_to_str_without_replacement(content, &mut big5_text, false);
-    if big5_used == content.len() && !big5_text.contains('\u{FFFD}') {
-        return BIG5;
     }
 
     // 默认返回 UTF-8

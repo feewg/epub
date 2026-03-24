@@ -160,7 +160,10 @@ impl EpubConverter3 {
                                 available_images.push(path);
                             }
                         }
-                        
+
+                        // 预编译数字匹配正则
+                        let number_re = regex::Regex::new(r"\d+")?;
+
                         // 为每个章节匹配图片
                         for (index, section) in sections.iter().enumerate() {
                             // 尝试完整匹配章节名
@@ -172,10 +175,9 @@ impl EpubConverter3 {
                                 images.insert(index, img.clone());
                                 continue;
                             }
-                            
+
                             // 尝试数字匹配
-                            let re = regex::Regex::new(r"\d+").unwrap();
-                            if let Some(nums) = re.find(&section.title) {
+                            if let Some(nums) = number_re.find(&section.title) {
                                 if let Some(img) = available_images.iter()
                                     .find(|img: &&PathBuf| {
                                         let name = img.file_stem().and_then(|s| s.to_str()).unwrap_or("");
@@ -347,7 +349,7 @@ impl EpubConverter3 {
             if let Some(file_name) = font_path.file_name().and_then(|f| f.to_str()) {
                 css.push_str("/* 自定义字体 */\n");
                 css.push_str("@font-face {\n");
-                css.push_str(&format!("  font-family: 'CustomFont';\n"));
+                css.push_str("  font-family: 'CustomFont';\n");
                 css.push_str(&format!("  src: url('fonts/{}');\n", file_name));
                 css.push_str("  font-display: swap;\n");
                 css.push_str("}\n\n");

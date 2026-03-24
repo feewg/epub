@@ -6,6 +6,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 /// 允许的 HTML 标签列表
+#[allow(dead_code)]
 const ALLOWED_TAGS: &[&str] = &[
     // 单标签
     "img", "br", "hr",
@@ -19,12 +20,8 @@ const ALLOWED_TAGS: &[&str] = &[
     "table", "tr", "td", "th",
 ];
 
-/// 允许的 HTML 属性列表
-const ALLOWED_ATTRIBUTES: &[&str] = &[
-    "href", "src", "alt", "title", "class", "id", "style",
-];
-
 /// 预编译的允许标签正则表达式
+#[allow(dead_code)]
 static ALLOWED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
     let patterns: Vec<String> = ALLOWED_TAGS
         .iter()
@@ -44,14 +41,8 @@ static ALLOWED_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(&combined).unwrap()
 });
 
-/// HTML 转义特殊字符
-fn escape_html(input: &str) -> String {
-    input.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
 /// 清理 HTML 标签，只保留允许的标签
+#[allow(dead_code)]
 pub fn sanitize_html_tags(input: &str) -> String {
     if !input.contains('<') {
         return input.to_string();
@@ -63,41 +54,17 @@ pub fn sanitize_html_tags(input: &str) -> String {
     for mat in ALLOWED_TAG_REGEX.find_iter(input) {
         // 转义匹配前的文本
         let before = &input[last_end..mat.start()];
-        result.push_str(&escape_html(before));
+        result.push_str(&escape_xml(before));
 
-        // 清理标签中的属性
-        let tag = sanitize_attributes(mat.as_str());
-        result.push_str(&tag);
+        result.push_str(mat.as_str());
         last_end = mat.end();
     }
 
     // 转义剩余文本
     let remaining = &input[last_end..];
-    result.push_str(&escape_html(remaining));
+    result.push_str(&escape_xml(remaining));
 
     result
-}
-
-/// 清理标签中的属性，只保留允许的属性
-fn sanitize_attributes(tag: &str) -> String {
-    // 如果没有属性，直接返回
-    if !tag.contains('=') {
-        return tag.to_string();
-    }
-
-    // 这是一个简化版本，实际应用中需要更复杂的解析
-    // 这里假设标签格式正确，只是过滤掉不允许的属性
-    tag.to_string()
-}
-
-/// 生成段落 HTML 标签
-pub fn wrap_paragraph(text: &str) -> String {
-    let cleaned = sanitize_html_tags(text);
-    if cleaned.is_empty() {
-        String::new()
-    } else {
-        format!("<p>{}</p>", cleaned)
-    }
 }
 
 /// 转义 XML 特殊字符（用于 XML 内容）
@@ -118,14 +85,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_escape_html() {
-        let input = "<script>alert('xss')</script>";
-        let result = escape_html(input);
-        assert!(result.contains("&lt;script&gt;"));
-        assert!(!result.contains("<script>"));
-    }
-
-    #[test]
     fn test_sanitize_allowed_tags() {
         let input = "<p>合法段落</p>";
         let result = sanitize_html_tags(input);
@@ -138,20 +97,6 @@ mod tests {
         let result = sanitize_html_tags(input);
         assert!(result.contains("<p>合法</p>"));
         assert!(!result.contains("<script>"));
-    }
-
-    #[test]
-    fn test_wrap_paragraph() {
-        let input = "这是一个段落";
-        let result = wrap_paragraph(input);
-        assert_eq!(result, "<p>这是一个段落</p>");
-    }
-
-    #[test]
-    fn test_wrap_paragraph_empty() {
-        let input = "";
-        let result = wrap_paragraph(input);
-        assert_eq!(result, "");
     }
 
     #[test]

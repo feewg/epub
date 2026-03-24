@@ -18,6 +18,7 @@ jobs:
   # 构建 Linux x86_64
   build-linux-x86_64:
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -58,6 +59,7 @@ jobs:
   # 构建 macOS x86_64
   build-macos-x86_64:
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -93,6 +95,7 @@ jobs:
   # 构建 macOS aarch64 (Apple Silicon)
   build-macos-aarch64:
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -128,6 +131,7 @@ jobs:
   # 构建 Windows x86_64
   build-windows-x86_64:
     runs-on: windows-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -163,6 +167,7 @@ jobs:
   # 构建 Windows aarch64
   build-windows-aarch64:
     runs-on: windows-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -203,6 +208,7 @@ jobs:
       - build-macos-aarch64
       - build-windows-x86_64
       - build-windows-aarch64
+    if: always() && (needs.build-linux-x86_64.result == 'success' || needs.build-macos-x86_64.result == 'success' || needs.build-macos-aarch64.result == 'success' || needs.build-windows-x86_64.result == 'success' || needs.build-windows-aarch64.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write

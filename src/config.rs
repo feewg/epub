@@ -48,20 +48,15 @@ fn load_config_file(path: &Path) -> Result<Value> {
 
 /// 查找配置文件
 fn find_config(filename: &Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
-    let search_paths: Vec<Option<&std::path::Path>> = vec![
-        filename.as_ref().and_then(|p| p.parent()),
-        Some(std::path::Path::new(".")),
-    ];
+    let config_names = ["kaf.yaml", "kaf.yml", ".kaf.yaml", ".kaf.yml"];
 
-    let config_names = vec![
-        "kaf.yaml",
-        "kaf.yml",
-        ".kaf.yaml",
-        ".kaf.yml",
-    ];
+    // 优先搜索文件所在目录，然后搜索当前目录
+    let search_dirs = filename.as_ref()
+        .and_then(|p| p.parent())
+        .into_iter()
+        .chain(Some(std::path::Path::new(".")));
 
-    for dir in search_paths {
-        let dir = dir?;
+    for dir in search_dirs {
         for name in &config_names {
             let path = dir.join(name);
             if path.exists() {
@@ -75,118 +70,106 @@ fn find_config(filename: &Option<std::path::PathBuf>) -> Option<std::path::PathB
 
 /// 合并配置
 fn merge_config(book: &mut Book, config: &Value) -> Result<()> {
-    if let Some(value) = config.get("bookname") {
-        if let Some(s) = value.as_str() {
-            book.bookname = Some(s.to_string());
-        }
+    // 字符串字段
+    if let Some(s) = config.get("bookname").and_then(|v| v.as_str()) {
+        book.bookname = Some(s.to_string());
+    }
+    if let Some(s) = config.get("author").and_then(|v| v.as_str()) {
+        book.author = s.to_string();
+    }
+    if let Some(s) = config.get("chapter_match").and_then(|v| v.as_str()) {
+        book.chapter_match = Some(s.to_string());
+    }
+    if let Some(s) = config.get("volume_match").and_then(|v| v.as_str()) {
+        book.volume_match = Some(s.to_string());
+    }
+    if let Some(s) = config.get("exclusion_pattern").and_then(|v| v.as_str()) {
+        book.exclusion_pattern = Some(s.to_string());
+    }
+    if let Some(s) = config.get("unknown_title").and_then(|v| v.as_str()) {
+        book.unknown_title = s.to_string();
+    }
+    if let Some(s) = config.get("paragraph_spacing").and_then(|v| v.as_str()) {
+        book.paragraph_spacing = s.to_string();
     }
 
-    if let Some(value) = config.get("author") {
-        if let Some(s) = value.as_str() {
-            book.author = s.to_string();
-        }
+    // 可选字符串字段
+    if let Some(s) = config.get("line_height").and_then(|v| v.as_str()) {
+        book.line_height = Some(s.to_string());
     }
 
-    if let Some(value) = config.get("chapter_match") {
-        if let Some(s) = value.as_str() {
-            book.chapter_match = Some(s.to_string());
-        }
+    // 数字字段
+    if let Some(n) = config.get("max_title_length").and_then(|v| v.as_u64()) {
+        book.max_title_length = n as usize;
+    }
+    if let Some(n) = config.get("indent").and_then(|v| v.as_u64()) {
+        book.indent = n as usize;
     }
 
-    if let Some(value) = config.get("volume_match") {
-        if let Some(s) = value.as_str() {
-            book.volume_match = Some(s.to_string());
-        }
+    // 布尔字段
+    if let Some(b) = config.get("add_tips").and_then(|v| v.as_bool()) {
+        book.add_tips = b;
+    }
+    if let Some(b) = config.get("separate_chapter_number").and_then(|v| v.as_bool()) {
+        book.separate_chapter_number = b;
     }
 
-    if let Some(value) = config.get("exclusion_pattern") {
-        if let Some(s) = value.as_str() {
-            book.exclusion_pattern = Some(s.to_string());
-        }
+    // 枚举字段
+    if let Some(s) = config.get("align").and_then(|v| v.as_str()) {
+        book.align = parse_align(s)?;
+    }
+    if let Some(s) = config.get("lang").and_then(|v| v.as_str()) {
+        book.lang = parse_lang(s)?;
+    }
+    if let Some(s) = config.get("format").and_then(|v| v.as_str()) {
+        book.format = parse_format(s)?;
     }
 
-    if let Some(value) = config.get("max_title_length") {
-        if let Some(n) = value.as_u64() {
-            book.max_title_length = n as usize;
-        }
+    // 自定义 CSS
+    if let Some(ref custom_css) = config.get("custom_css").and_then(|v| v.as_str()) {
+        book.custom_css = Some(custom_css.into());
     }
-
-    if let Some(value) = config.get("indent") {
-        if let Some(n) = value.as_u64() {
-            book.indent = n as usize;
-        }
-    }
-
-    if let Some(value) = config.get("align") {
-        if let Some(s) = value.as_str() {
-            book.align = match s.to_lowercase().as_str() {
-                "left" => TextAlignment::Left,
-                "center" => TextAlignment::Center,
-                "right" => TextAlignment::Right,
-                _ => return Err(KafError::ParseError(format!("Invalid align value: {}", s))),
-            };
-        }
-    }
-
-    if let Some(value) = config.get("unknown_title") {
-        if let Some(s) = value.as_str() {
-            book.unknown_title = s.to_string();
-        }
-    }
-
-    if let Some(value) = config.get("paragraph_spacing") {
-        if let Some(s) = value.as_str() {
-            book.paragraph_spacing = s.to_string();
-        }
-    }
-
-    if let Some(value) = config.get("line_height") {
-        if let Some(s) = value.as_str() {
-            book.line_height = Some(s.to_string());
-        }
-    }
-
-    if let Some(value) = config.get("add_tips") {
-        if let Some(b) = value.as_bool() {
-            book.add_tips = b;
-        }
-    }
-
-    if let Some(value) = config.get("lang") {
-        if let Some(s) = value.as_str() {
-            book.lang = match s.to_lowercase().as_str() {
-                "zh" => Language::Zh,
-                "en" => Language::En,
-                "de" => Language::De,
-                "fr" => Language::Fr,
-                "it" => Language::It,
-                "es" => Language::Es,
-                "ja" => Language::Ja,
-                "pt" => Language::Pt,
-                "ru" => Language::Ru,
-                "nl" => Language::Nl,
-                _ => return Err(KafError::ParseError(format!("Invalid lang value: {}", s))),
-            };
-        }
-    }
-
-    if let Some(value) = config.get("format") {
-        if let Some(s) = value.as_str() {
-            book.format = match s.to_lowercase().as_str() {
-                "epub" => OutputFormat::Epub,
-                "all" => OutputFormat::All,
-                _ => return Err(KafError::ParseError(format!("Invalid format value: {}", s))),
-            };
-        }
-    }
-
-    if let Some(value) = config.get("separate_chapter_number") {
-        if let Some(b) = value.as_bool() {
-            book.separate_chapter_number = b;
-        }
+    if let Some(ref extended_css) = config.get("extended_css").and_then(|v| v.as_str()) {
+        book.extended_css = Some(extended_css.to_string());
     }
 
     Ok(())
+}
+
+/// 解析对齐方式
+fn parse_align(s: &str) -> Result<TextAlignment> {
+    Ok(match s.to_lowercase().as_str() {
+        "left" => TextAlignment::Left,
+        "center" => TextAlignment::Center,
+        "right" => TextAlignment::Right,
+        _ => return Err(KafError::ParseError(format!("Invalid align value: {}", s))),
+    })
+}
+
+/// 解析语言
+fn parse_lang(s: &str) -> Result<Language> {
+    Ok(match s.to_lowercase().as_str() {
+        "zh" => Language::Zh,
+        "en" => Language::En,
+        "de" => Language::De,
+        "fr" => Language::Fr,
+        "it" => Language::It,
+        "es" => Language::Es,
+        "ja" => Language::Ja,
+        "pt" => Language::Pt,
+        "ru" => Language::Ru,
+        "nl" => Language::Nl,
+        _ => return Err(KafError::ParseError(format!("Invalid lang value: {}", s))),
+    })
+}
+
+/// 解析输出格式
+fn parse_format(s: &str) -> Result<OutputFormat> {
+    Ok(match s.to_lowercase().as_str() {
+        "epub" => OutputFormat::Epub,
+        "all" => OutputFormat::All,
+        _ => return Err(KafError::ParseError(format!("Invalid format value: {}", s))),
+    })
 }
 
 /// 应用 CLI 配置
@@ -199,9 +182,7 @@ fn apply_cli_config(book: &mut Book, cli: &Cli) -> Result<()> {
         book.bookname = Some(bookname.clone());
     }
 
-    if !cli.author.is_empty() {
-        book.author = cli.author.clone();
-    }
+    book.author = cli.author.clone();
 
     if let Some(ref chapter_match) = cli.chapter_match {
         book.chapter_match = Some(chapter_match.clone());
@@ -217,41 +198,16 @@ fn apply_cli_config(book: &mut Book, cli: &Cli) -> Result<()> {
 
     book.max_title_length = cli.max_title_length;
     book.indent = cli.indent;
-
-    book.align = match cli.align.to_lowercase().as_str() {
-        "left" => TextAlignment::Left,
-        "center" => TextAlignment::Center,
-        "right" => TextAlignment::Right,
-        _ => return Err(KafError::ParseError(format!("Invalid align value: {}", cli.align))),
-    };
+    book.align = parse_align(&cli.align)?;
+    book.format = parse_format(&cli.format)?;
+    book.lang = parse_lang(&cli.lang)?;
+    book.separate_chapter_number = cli.separate_chapter_number;
 
     if let Some(ref cover) = cli.cover {
         book.cover = Some(crate::model::CoverSource::Local {
             path: std::path::PathBuf::from(cover),
         });
     }
-
-    book.format = match cli.format.to_lowercase().as_str() {
-        "epub" => OutputFormat::Epub,
-        "all" => OutputFormat::All,
-        _ => return Err(KafError::ParseError(format!("Invalid format value: {}", cli.format))),
-    };
-
-    book.lang = match cli.lang.to_lowercase().as_str() {
-        "zh" => Language::Zh,
-        "en" => Language::En,
-        "de" => Language::De,
-        "fr" => Language::Fr,
-        "it" => Language::It,
-        "es" => Language::Es,
-        "ja" => Language::Ja,
-        "pt" => Language::Pt,
-        "ru" => Language::Ru,
-        "nl" => Language::Nl,
-        _ => return Err(KafError::ParseError(format!("Invalid lang value: {}", cli.lang))),
-    };
-
-    book.separate_chapter_number = cli.separate_chapter_number;
 
     if let Some(ref custom_css) = cli.custom_css {
         book.custom_css = Some(custom_css.clone());

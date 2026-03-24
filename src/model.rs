@@ -22,6 +22,7 @@ pub struct Book {
 
     /// 章节列表
     #[serde(skip)]
+    #[allow(dead_code)]
     pub sections: Vec<Section>,
 
     /// 章节标题匹配正则
@@ -117,7 +118,7 @@ pub enum CoverSource {
 }
 
 /// 章节页眉图片配置
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ChapterHeader {
     /// 页眉图片路径
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,7 +146,7 @@ pub struct ChapterHeader {
 }
 
 /// 章节结构
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct Section {
     /// 章节标题
     pub title: String,
@@ -157,16 +158,6 @@ pub struct Section {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub subsections: Vec<Section>,
-}
-
-impl Default for Section {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            content: String::new(),
-            subsections: Vec::new(),
-        }
-    }
 }
 
 /// 文本对齐方式
@@ -283,19 +274,6 @@ impl Default for Book {
             extended_css: None,
             css_variables: HashMap::new(),
             chapter_header: ChapterHeader::default(),
-        }
-    }
-}
-
-impl Default for ChapterHeader {
-    fn default() -> Self {
-        Self {
-            image: None,
-            image_folder: None,
-            position: ImagePosition::default(),
-            height: None,
-            width: None,
-            mode: HeaderMode::default(),
         }
     }
 }

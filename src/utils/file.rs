@@ -4,9 +4,10 @@
 
 use crate::error::{KafError, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// 读取文件内容
+#[allow(dead_code)]
 pub fn read_file(path: &Path) -> Result<String> {
     if !path.exists() {
         return Err(KafError::FileNotFound(
@@ -19,6 +20,7 @@ pub fn read_file(path: &Path) -> Result<String> {
 }
 
 /// 读取文件为字节
+#[allow(dead_code)]
 pub fn read_file_bytes(path: &Path) -> Result<Vec<u8>> {
     if !path.exists() {
         return Err(KafError::FileNotFound(
@@ -31,6 +33,7 @@ pub fn read_file_bytes(path: &Path) -> Result<Vec<u8>> {
 }
 
 /// 写入文件
+#[allow(dead_code)]
 pub fn write_file(path: &Path, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -41,6 +44,7 @@ pub fn write_file(path: &Path, content: &str) -> Result<()> {
 }
 
 /// 写入文件（字节）
+#[allow(dead_code)]
 pub fn write_file_bytes(path: &Path, content: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -75,6 +79,7 @@ pub fn extract_bookname_from_filename(path: &Path) -> Result<(String, Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_extract_bookname_simple() {

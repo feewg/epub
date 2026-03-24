@@ -21,6 +21,7 @@ pub enum KafError {
 
     /// 编码检测失败
     #[error("编码检测失败: {0}")]
+    #[allow(dead_code)]
     Encoding(String),
 
     /// 章节解析失败
@@ -29,6 +30,7 @@ pub enum KafError {
 
     /// EPUB 生成失败
     #[error("EPUB 生成失败: {0}")]
+    #[allow(dead_code)]
     EpubGenerationFailed(String),
 
     /// 配置解析失败
@@ -45,6 +47,7 @@ pub enum KafError {
 
     /// 序列化错误
     #[error("序列化错误: {0}")]
+    #[allow(dead_code)]
     SerdeError(String),
 
     /// 未知错误
