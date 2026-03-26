@@ -37,10 +37,6 @@ pub enum KafError {
     #[error("配置解析失败: {0}")]
     ConfigParseError(#[from] serde_yaml::Error),
 
-    /// HTTP 请求失败
-    #[error("HTTP 请求失败: {0}")]
-    HttpError(#[from] reqwest::Error),
-
     /// 图片处理失败
     #[error("图片处理失败: {0}")]
     ImageError(#[from] image::ImageError),
@@ -69,12 +65,6 @@ pub type Result<T> = std::result::Result<T, KafError>;
 impl From<epub_builder::Error> for KafError {
     fn from(err: epub_builder::Error) -> Self {
         KafError::EpubBuilder(err.to_string())
-    }
-}
-
-impl From<tokio::task::JoinError> for KafError {
-    fn from(err: tokio::task::JoinError) -> Self {
-        KafError::Unknown(format!("Task join error: {}", err))
     }
 }
 

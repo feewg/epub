@@ -341,122 +341,54 @@ impl EpubConverter3 {
     }
 
     /// 构建 CSS 样式
+    ///
+    /// 使用主题系统生成 CSS，支持自定义 CSS 覆盖
     fn build_css(&self) -> Result<String> {
-        let mut css = String::new();
-
-        // 添加字体定义（如果有自定义字体）
-        let font_family = if let Some(ref font_path) = self.book.font {
-            if let Some(file_name) = font_path.file_name().and_then(|f| f.to_str()) {
-                css.push_str("/* 自定义字体 */\n");
-                css.push_str("@font-face {\n");
-                css.push_str("  font-family: 'CustomFont';\n");
-                css.push_str(&format!("  src: url('fonts/{}');\n", file_name));
-                css.push_str("  font-display: swap;\n");
-                css.push_str("}\n\n");
-            }
-            "'CustomFont', serif"
-        } else {
-            "serif"
+        // 获取主题
+        let theme = match self.book.theme {
+            crate::model::ThemePreset::Light => crate::style::Theme::light(),
+            crate::model::ThemePreset::Dark => crate::style::Theme::dark(),
+            crate::model::ThemePreset::Sepia => crate::style::Theme::sepia(),
+            crate::model::ThemePreset::HighContrast => crate::style::Theme::high_contrast(),
+            crate::model::ThemePreset::Modern => crate::style::Theme::modern(),
+            crate::model::ThemePreset::Traditional => crate::style::Theme::traditional(),
         };
 
-        // 添加 CSS 变量 :root
-        if !self.book.css_variables.is_empty() {
-            css.push_str(":root {\n");
-            for (key, value) in &self.book.css_variables {
-                css.push_str(&format!("  {}: {};\n", key, value));
-            }
-            css.push_str("}\n\n");
-        }
+        // 创建 CSS 生成器
+        let generator = crate::style::CssGenerator::new();
 
-        // 基础样式
-        css.push_str(&format!(r#"
+        // 生成基础 CSS
+        let mut css = generator.generate(&self.book, &theme);
+
+        // 添加字体定义（如果有自定义字体）
+        if let Some(ref font_path) = self.book.font {
+            if let Some(file_name) = font_path.file_name().and_then(|f| f.to_str()) {
+                let font_css = format!(
+                    r#"
+/* 自定义字体 */
+@font-face {{
+    font-family: 'CustomFont';
+    src: url('fonts/{}');
+    font-display: swap;
+}}
+
 body {{
-    font-family: {};
-    margin: 0;
-    padding: 0;
-    line-height: 1.5;
+    font-family: 'CustomFont', var(--body-font), serif;
 }}
-
-h1 {{
-    text-align: center;
-    font-size: 1.8em;
-    margin: 1em 0;
-}}
-
-h3.chapter-title {{
-    text-align: center;
-    margin-top: 1.5em;
-    margin-bottom: 1em;
-    font-size: 1.3em;
-    font-weight: bold;
-}}
-
-.chapter-number {{
-    display: block;
-    font-size: 1.2em;
-}}
-
-.chapter-content {{
-    margin: 1em;
-    text-indent: {}em;
-"#, font_family, self.book.indent));
-
-        // 添加行高设置
-        if let Some(ref line_height) = self.book.line_height {
-            css.push_str(&format!("    line-height: {};\n", line_height));
+"#,
+                    file_name
+                );
+                css.push_str(&font_css);
+            }
         }
 
-        css.push_str(&format!(r#"}}
-
-.chapter-content p {{
-    margin: {} 0;
-    text-align: justify;
-}}
-
-/* 章节页眉图片样式 */
-.chapter-header {{
-    margin: 1em 0;
-}}
-
-.chapter-header img {{
-    max-width: 100%;
-    height: auto;
-    display: block;
-}}
-
-.chapter-header.left {{
-    text-align: left;
-}}
-
-.chapter-header.center {{
-    text-align: center;
-}}
-
-.chapter-header.right {{
-    text-align: right;
-}}
-
-nav#toc ol {{
-    list-style-type: decimal;
-}}
-
-nav#toc li {{
-    margin: 0.5em 0;
-}}
-
-nav#toc a {{
-    text-decoration: none;
-    color: inherit;
-}}
-"#, self.book.paragraph_spacing));
-
-        // 加载自定义 CSS 文件
+        // 保留：加载旧版自定义 CSS 文件（向后兼容）
         if let Some(ref custom_css_path) = self.book.custom_css {
             if custom_css_path.exists() {
                 match std::fs::read_to_string(custom_css_path) {
                     Ok(custom_css) => {
                         css.push('\n');
-                        css.push_str("/* 自定义 CSS 文件 */\n");
+                        css.push_str("/* 用户自定义 CSS（覆盖） */\n");
                         css.push_str(&custom_css);
                     }
                     Err(e) => {
@@ -466,11 +398,22 @@ nav#toc a {{
             }
         }
 
-        // 添加内联扩展 CSS
+        // 保留：添加内联扩展 CSS（向后兼容）
         if let Some(ref extended) = self.book.extended_css {
             css.push('\n');
-            css.push_str("/* 扩展 CSS */\n");
+            css.push_str("/* 扩展 CSS（向后兼容） */\n");
             css.push_str(extended);
+        }
+
+        // 保留：添加旧版 CSS 变量（向后兼容）
+        if !self.book.css_variables.is_empty() {
+            css.push('\n');
+            css.push_str("/* 旧版 CSS 变量（向后兼容） */\n");
+            css.push_str(":root {\n");
+            for (key, value) in &self.book.css_variables {
+                css.push_str(&format!("  {}: {};\n", key, value));
+            }
+            css.push_str("}\n");
         }
 
         Ok(css)
@@ -517,7 +460,8 @@ mod tests {
 
         assert!(css.contains("body {"));
         assert!(css.contains("h3.chapter-title {"));
-        assert!(css.contains("text-indent: 2em;"));
+        // 新的 CSS 使用 CSS 变量，不再直接使用 text-indent: 2em;
+        assert!(css.contains("--paragraph-indent:"));
     }
 
     #[test]

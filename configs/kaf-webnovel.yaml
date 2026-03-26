@@ -1,0 +1,48 @@
+# kaf-cli 网络小说配置文件
+# 适合在线小说格式
+
+# 书名
+bookname: "网络小说示例"
+
+# 作者
+author: "网络作者"
+
+# 章节匹配规则（更宽松）
+chapter_match: "^第.{1,15}章|^[0-9]+\s+\S+"
+
+# 卷匹配规则
+volume_match: "^第[0-9一二三四五六七八九十零〇百千两 ]+[卷部]"
+
+# 排除规则
+exclusion_pattern: "^第[0-9一二三四五六七八九十零〇百千两 ]+(部门|部队|部属|部分|部件|部落)"
+
+# 标题最大字数（网络小说标题通常较长）
+max_title_length: 50
+
+# 段落缩进字数
+indent: 2
+
+# 段落间距（网络小说适合更大间距）
+paragraph_spacing: "1em"
+
+# 行高（网络小说适合更大的行高）
+line_height: "2.0"
+
+# 标题对齐方式
+align: "center"
+
+# 书籍语言
+lang: "zh"
+
+# 输出格式
+format: "all"
+
+# 分离章节序号和标题
+separate_chapter_number: false
+
+# CSS 变量（网络小说主题）
+css_variables:
+  primary-color: "#2c3e50"
+  background-color: "#ecf0f1"
+  text-color: "#34495e"
+  link-color: "#3498db"

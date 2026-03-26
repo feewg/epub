@@ -1,0 +1,27 @@
+# kaf-cli 基础配置文件
+# 适合一般的小说转换
+
+# 书名
+bookname: "示例小说"
+
+# 作者
+author: "YSTYLE"
+
+# 章节匹配规则
+chapter_match: "^第.{1,8}章"
+
+# 标题最大字数
+max_title_length: 35
+
+# 段落缩进字数
+indent: 2
+
+# 标题对齐方式
+align: "center"
+
+# 书籍语言
+lang: "zh"
+
+# 输出格式
+format: "all"
+

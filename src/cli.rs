@@ -95,6 +95,30 @@ pub struct Cli {
     /// 段落间距
     #[arg(long)]
     pub paragraph_spacing: Option<String>,
+
+    /// 批量转换输出目录
+    #[arg(long)]
+    pub output_dir: Option<PathBuf>,
+
+    /// 遇到错误继续转换
+    #[arg(long)]
+    pub continue_on_error: bool,
+
+    /// 生成报告文件 (json, markdown, html)
+    #[arg(long)]
+    pub report: Option<String>,
+
+    /// 仅解析不生成 (dry-run)
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// 最大错误数量（0 表示无限制）
+    #[arg(long, default_value = "0")]
+    pub max_errors: usize,
+
+    /// 显示章节识别结果（仅 dry-run 有效）
+    #[arg(long)]
+    pub show_chapters: bool,
 }
 
 #[cfg(test)]

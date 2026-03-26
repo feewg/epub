@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-03-26T12:18:57.783742600+00:00",
+  "summary": {
+    "total_files": 2,
+    "successful_conversions": 0,
+    "failed_conversions": 2,
+    "total_duration_secs": 144.9520863,
+    "average_duration_secs": 72.47604315,
+    "success_rate": 0.0
+  },
+  "files": [
+    {
+      "input_file": "test\\test_simple.txt",
+      "output_file": null,
+      "status": "failed",
+      "duration_secs": 0.0301055,
+      "chapter_count": null,
+      "file_size_bytes": 0,
+      "error_message": "IO 错误: 系统找不到指定的路径。 (os error 3)"
+    },
+    {
+      "input_file": "test\\soushu2025.com@《教主的退休日常》作者：云山青（校对版全本）[搜书吧].txt",
+      "output_file": null,
+      "status": "failed",
+      "duration_secs": 144.9518885,
+      "chapter_count": null,
+      "file_size_bytes": 0,
+      "error_message": "IO 错误: 系统找不到指定的路径。 (os error 3)"
+    }
+  ],
+  "errors": [
+    {
+      "error_type": "ConversionError",
+      "message": "IO 错误: 系统找不到指定的路径。 (os error 3)",
+      "affected_files": [
+        "test\\test_simple.txt",
+        "test\\soushu2025.com@《教主的退休日常》作者：云山青（校对版全本）[搜书吧].txt"
+      ],
+      "occurrence_count": 2
+    }
+  ]
+}

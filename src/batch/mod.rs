@@ -2,6 +2,15 @@
 //!
 //! 处理批量转换任务
 
+mod enhanced;
+mod report;
+
+pub use enhanced::{BatchConfig, EnhancedBatchConverter};
+pub use report::{
+    BatchReport, ConversionSummary, FileConversionResult,
+    ConversionStatus, ErrorDetail, ReportGenerator, ReportFormat
+};
+
 use crate::converter::EpubConverter3;
 use crate::error::Result;
 use crate::model::Book;
@@ -157,9 +166,9 @@ impl BatchConverter {
             let task = tokio::spawn(async move {
                 let filename = book.filename.clone();
                 let bookname = book.bookname.clone().unwrap_or_default();
-                
+
                 info!("开始转换: {}", bookname);
-                
+
                 match Self::convert_single(book).await {
                     Ok(output_path) => {
                         info!("转换成功: {} -> {:?}", bookname, output_path);
@@ -214,7 +223,9 @@ impl BatchConverter {
         let sections = tokio::task::spawn_blocking(move || {
             let mut parser = Parser::new(book);
             parser.parse()
-        }).await??;
+        }).await.map_err(|e| {
+            crate::error::KafError::Unknown(format!("Task join error: {}", e))
+        })??;
 
         // 生成 EPUB
         let converter = EpubConverter3::new(Book {

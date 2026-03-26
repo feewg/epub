@@ -64,11 +64,19 @@ pub fn extract_bookname_from_filename(path: &Path) -> Result<(String, Option<Str
     // 去除前缀 @ 符号（知轩藏书格式）
     let filename = filename.trim_start_matches('@');
 
+    // 去除常见的前缀（如 soushu2025.com@ 等）
+    let filename = if let Some(pos) = filename.find('@') {
+        &filename[pos + 1..]
+    } else {
+        filename
+    };
+
     // 知轩藏书格式: 《希灵帝国》（校对版全本）作者：远瞳
-    let re1 = regex::Regex::new(r"《(.*?)》.*作者[：:](.*?)$").unwrap();
+    // 改进：作者名后面可能有括号或方括号等附加信息
+    let re1 = regex::Regex::new(r"《(.*?)》.*?作者[：:]([^（\[\(]+)").unwrap();
     if let Some(caps) = re1.captures(filename) {
         let bookname = caps.get(1).map(|m| m.as_str().to_string()).unwrap();
-        let author = caps.get(2).map(|m| m.as_str().to_string());
+        let author = caps.get(2).map(|m| m.as_str().trim().to_string());
         return Ok((bookname, author));
     }
 

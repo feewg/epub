@@ -105,6 +105,10 @@ pub struct Book {
     /// 章节页眉图片
     #[serde(default)]
     pub chapter_header: ChapterHeader,
+
+    /// 主题预设
+    #[serde(default)]
+    pub theme: ThemePreset,
 }
 
 /// 封面来源
@@ -168,6 +172,52 @@ pub enum TextAlignment {
     #[default]
     Center,
     Right,
+}
+
+/// 主题预设
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreset {
+    /// 浅色主题（默认）
+    #[default]
+    Light,
+    /// 深色主题
+    Dark,
+    /// 护眼模式（ sepia 色调）
+    Sepia,
+    /// 高对比度
+    HighContrast,
+    /// 现代简约
+    Modern,
+    /// 传统文学
+    Traditional,
+}
+
+impl ThemePreset {
+    /// 获取所有预设主题列表
+    pub fn all() -> Vec<Self> {
+        vec![
+            ThemePreset::Light,
+            ThemePreset::Dark,
+            ThemePreset::Sepia,
+            ThemePreset::HighContrast,
+            ThemePreset::Modern,
+            ThemePreset::Traditional,
+        ]
+    }
+
+    /// 获取主题名称
+    pub fn name(&self) -> &'static str {
+        match self {
+            ThemePreset::Light => "浅色主题",
+            ThemePreset::Dark => "深色主题",
+            ThemePreset::Sepia => "护眼模式",
+            ThemePreset::HighContrast => "高对比度",
+            ThemePreset::Modern => "现代简约",
+            ThemePreset::Traditional => "传统文学",
+        }
+    }
+
 }
 
 /// 书籍语言
@@ -274,6 +324,7 @@ impl Default for Book {
             extended_css: None,
             css_variables: HashMap::new(),
             chapter_header: ChapterHeader::default(),
+            theme: ThemePreset::default(),
         }
     }
 }
