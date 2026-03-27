@@ -6,10 +6,7 @@ mod enhanced;
 mod report;
 
 pub use enhanced::{BatchConfig, EnhancedBatchConverter};
-pub use report::{
-    BatchReport, ConversionSummary, FileConversionResult,
-    ConversionStatus, ErrorDetail, ReportGenerator, ReportFormat
-};
+pub use report::{BatchReport, ReportFormat};
 
 use crate::converter::EpubConverter3;
 use crate::error::Result;
@@ -64,7 +61,7 @@ impl FolderScanner {
                 if self.recursive {
                     self.scan_directory(&path, files)?;
                 }
-            } else if path.extension().map_or(false, |e| e == "txt") {
+            } else if path.extension().is_some_and(|e| e == "txt") {
                 files.push(path);
             }
         }
@@ -88,7 +85,7 @@ impl FolderScanner {
                 if self.recursive {
                     self.scan_directory_with_config(&path, books)?;
                 }
-            } else if path.extension().map_or(false, |e| e == "txt") {
+            } else if path.extension().is_some_and(|e| e == "txt") {
                 if let Some(book) = self.create_book_config(&path)? {
                     books.push(book);
                 }

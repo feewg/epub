@@ -7,3 +7,5 @@ pub mod html;
 pub mod regex;
 pub mod file;
 pub mod cover;
+
+// 重新导出封面模块的常用类型

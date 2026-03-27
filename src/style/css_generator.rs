@@ -135,30 +135,28 @@ h5, h6 {{
 
     /// 生成段落样式
     fn generate_paragraph_styles(&self, _book: &Book, _theme: &Theme) -> String {
-        format!(
-            r#"/* 段落样式 */
-p {{
+        r#"/* 段落样式 */
+p {
     margin-bottom: var(--paragraph-spacing);
     text-indent: var(--paragraph-indent);
     orphans: 2;
     widows: 2;
-}}
+}
 
-p.no-indent {{
+p.no-indent {
     text-indent: 0;
-}}
+}
 
 /* 首字下沉（可选） */
-.drop-cap::first-letter {{
+.drop-cap::first-letter {
     float: left;
     font-size: 3em;
     line-height: 0.8;
     padding-right: 0.1em;
     font-weight: bold;
     color: var(--accent-color);
-}}
-"#
-        )
+}
+"#.to_string()
     }
 
     /// 生成特殊元素样式
@@ -313,6 +311,7 @@ hr {
     }
 
     /// 生成仅包含基础样式的 CSS（用于兼容性）
+    #[allow(dead_code)]
     pub fn generate_minimal(&self, book: &Book) -> String {
         format!(
             r#"body {{

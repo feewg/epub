@@ -2,16 +2,13 @@
 //!
 //! 负责配置的加载、验证和合并
 
-mod loader;
-mod validator;
-mod presets;
+pub mod loader;
+pub mod validator;
+pub mod presets;
 
-pub use loader::{ConfigLoader, ConfigSource};
-pub use validator::{ConfigValidator, ValidationError};
-pub use presets::{ConfigPreset, generate_config_examples,
-                  generate_basic_config, generate_webnovel_config,
-                  generate_full_config, generate_minimal_config,
-                  generate_publication_config};
+pub use loader::ConfigLoader;
+pub use validator::ConfigValidator;
+pub use presets::generate_config_examples;
 
 use crate::cli::Cli;
 use crate::error::Result;
@@ -29,6 +26,7 @@ pub fn validate_config(book: &Book) -> Result<()> {
     validator.validate(book)
 }
 
+#[allow(dead_code)]
 /// 查找配置文件
 pub fn find_config_file(filename: &Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
     ConfigLoader::find_config(filename)

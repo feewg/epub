@@ -43,6 +43,7 @@ impl RegexCache {
     }
 
     /// 检查文本是否匹配章节标题
+    #[allow(dead_code)]
     pub fn is_chapter(&mut self, text: &str, custom_pattern: Option<&str>) -> Result<bool> {
         let pattern = custom_pattern.unwrap_or(DEFAULT_CHAPTER_MATCH);
         let regex = self.get_or_compile(pattern)?;
@@ -50,6 +51,7 @@ impl RegexCache {
     }
 
     /// 检查文本是否匹配卷标题
+    #[allow(dead_code)]
     pub fn is_volume(&mut self, text: &str, custom_pattern: Option<&str>) -> Result<bool> {
         let pattern = custom_pattern.unwrap_or(DEFAULT_VOLUME_MATCH);
         let regex = self.get_or_compile(pattern)?;

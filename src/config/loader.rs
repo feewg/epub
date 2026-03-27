@@ -11,16 +11,19 @@ use std::path::{Path, PathBuf};
 
 /// 配置源
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ConfigSource {
     /// CLI 参数（最高优先级）
     Cli,
     /// 配置文件
-    File(PathBuf),
+    File(#[allow(dead_code)] PathBuf),
     /// 默认配置
     Default,
 }
 
 /// 配置加载器
+/// 配置加载器
+#[allow(dead_code)]
 pub struct ConfigLoader {
     /// 配置文件名称列表
     config_filenames: Vec<String>,
@@ -92,7 +95,7 @@ impl ConfigLoader {
     fn load_config_file(&self, book: &mut Book, path: &Path, source: ConfigSource) -> Result<()> {
         let content = fs::read_to_string(path)?;
         let config: Value = serde_yaml::from_str(&content)
-            .map_err(|e| KafError::ConfigParseError(e))?;
+            .map_err(KafError::ConfigParseError)?;
 
         self.merge_config(book, &config, source)
     }
@@ -184,6 +187,11 @@ impl ConfigLoader {
             book.theme = Self::parse_theme(s)?;
         }
 
+        // 输入格式
+        if let Some(s) = config.get("input_format").and_then(|v| v.as_str()) {
+            book.input_format = Self::parse_input_format(s)?;
+        }
+
         Ok(())
     }
 
@@ -244,6 +252,9 @@ impl ConfigLoader {
             book.paragraph_spacing = paragraph_spacing.clone();
         }
 
+        // 输入格式
+        book.input_format = Self::parse_input_format(&cli.input_format)?;
+
         Ok(())
     }
 
@@ -280,6 +291,17 @@ impl ConfigLoader {
             "epub" => OutputFormat::Epub,
             "all" => OutputFormat::All,
             _ => return Err(KafError::ParseError(format!("无效的输出格式: {}", s))),
+        })
+    }
+
+    /// 解析输入格式
+    fn parse_input_format(s: &str) -> Result<crate::model::InputFormat> {
+        use crate::model::InputFormat;
+        Ok(match s.to_lowercase().as_str() {
+            "auto" => InputFormat::Auto,
+            "txt" | "text" => InputFormat::Txt,
+            "markdown" | "md" => InputFormat::Markdown,
+            _ => return Err(KafError::ParseError(format!("无效的输入格式: {}", s))),
         })
     }
 

@@ -22,6 +22,7 @@ pub struct BatchConfig {
     /// 遇到错误是否继续
     pub continue_on_error: bool,
     /// 最大错误数量（0 表示无限制）
+    #[allow(dead_code)]
     pub max_errors: usize,
     /// 是否仅解析不生成
     pub dry_run: bool,

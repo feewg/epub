@@ -32,6 +32,7 @@ impl ConfigPreset {
     }
 
     /// 获取配置描述
+    #[allow(dead_code)]
     pub fn description(&self) -> &str {
         match self {
             Self::Basic => "基础配置 - 适合一般的小说转换",

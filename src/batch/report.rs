@@ -95,7 +95,7 @@ pub enum ReportFormat {
 
 impl ReportFormat {
     /// 从字符串解析格式
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse(s: &str) -> Result<Self> {
         Ok(match s.to_lowercase().as_str() {
             "json" => ReportFormat::Json,
             "markdown" | "md" => ReportFormat::Markdown,
@@ -176,7 +176,7 @@ impl ReportGenerator {
             if let Some(ref error) = file.error_message {
                 md.push_str(&format!("   - Error: {}\n", error));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // 错误详情
@@ -190,7 +190,7 @@ impl ReportGenerator {
                 for file in &error.affected_files {
                     md.push_str(&format!("- {}\n", file));
                 }
-                md.push_str("\n");
+                md.push('\n');
             }
         }
 
@@ -326,10 +326,10 @@ mod tests {
 
     #[test]
     fn test_report_format_from_str() {
-        assert!(matches!(ReportFormat::from_str("json"), Ok(ReportFormat::Json)));
-        assert!(matches!(ReportFormat::from_str("markdown"), Ok(ReportFormat::Markdown)));
-        assert!(matches!(ReportFormat::from_str("html"), Ok(ReportFormat::Html)));
-        assert!(ReportFormat::from_str("invalid").is_err());
+        assert!(matches!(ReportFormat::parse("json"), Ok(ReportFormat::Json)));
+        assert!(matches!(ReportFormat::parse("markdown"), Ok(ReportFormat::Markdown)));
+        assert!(matches!(ReportFormat::parse("html"), Ok(ReportFormat::Html)));
+        assert!(ReportFormat::parse("invalid").is_err());
     }
 
     #[test]

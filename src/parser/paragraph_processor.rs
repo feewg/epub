@@ -7,22 +7,21 @@ use crate::utils::encoding::ensure_no_bom;
 
 /// 段落模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
+#[allow(dead_code)]
 pub enum ParagraphMode {
     /// 每行独立段落
     Line,
     /// 按空行分割段落
     BlankLine,
     /// 智能判断（推荐）
+    #[default]
     Smart,
 }
 
-impl Default for ParagraphMode {
-    fn default() -> Self {
-        Self::Smart
-    }
-}
 
 /// 段落处理器
+#[allow(dead_code)]
 pub struct ParagraphProcessor {
     book: Book,
     mode: ParagraphMode,
@@ -51,6 +50,7 @@ impl ParagraphProcessor {
     }
 
     /// 设置段落模式
+    #[allow(dead_code)]
     pub fn set_mode(&mut self, mode: ParagraphMode) {
         self.mode = mode;
     }
@@ -67,6 +67,7 @@ impl ParagraphProcessor {
     }
 
     /// 处理多行内容（智能合并）
+    #[allow(dead_code)]
     pub fn process_lines(&self, lines: &[&str]) -> Vec<String> {
         match self.mode {
             ParagraphMode::Line => self.process_line_mode(lines),
@@ -76,6 +77,7 @@ impl ParagraphProcessor {
     }
 
     /// 行模式：每行独立成段
+    #[allow(dead_code)]
     fn process_line_mode(&self, lines: &[&str]) -> Vec<String> {
         lines
             .iter()
@@ -85,6 +87,7 @@ impl ParagraphProcessor {
     }
 
     /// 空行模式：按空行分割段落
+    #[allow(dead_code)]
     fn process_blank_line_mode(&self, lines: &[&str]) -> Vec<String> {
         let mut paragraphs = Vec::new();
         let mut current_paragraph = String::new();
@@ -117,6 +120,7 @@ impl ParagraphProcessor {
     }
 
     /// 智能模式：智能判断段落分割
+    #[allow(dead_code)]
     fn process_smart_mode(&self, lines: &[&str]) -> Vec<String> {
         let mut paragraphs = Vec::new();
         let mut current_paragraph = String::new();
@@ -176,6 +180,7 @@ impl ParagraphProcessor {
     }
 
     /// 判断是否应该开始新段落
+    #[allow(dead_code)]
     fn should_start_new_paragraph(
         &self,
         line: &str,
@@ -237,6 +242,7 @@ impl ParagraphProcessor {
     }
 
     /// 判断是否是对话
+    #[allow(dead_code)]
     fn is_dialogue(&self, line: &str) -> bool {
         // 对话通常以引号开始
         let starts_with_quote = line.starts_with('「')
@@ -259,6 +265,7 @@ impl ParagraphProcessor {
     }
 
     /// 合并短行
+    #[allow(dead_code)]
     pub fn merge_short_lines(&self, lines: &[&str]) -> Vec<String> {
         let mut merged = Vec::new();
         let mut buffer = String::new();
@@ -294,16 +301,19 @@ impl ParagraphProcessor {
     }
 
     /// 设置最大段落长度
+    #[allow(dead_code)]
     pub fn set_max_paragraph_length(&mut self, max_length: usize) {
         self.max_paragraph_length = max_length;
     }
 
     /// 设置合并阈值
+    #[allow(dead_code)]
     pub fn set_merge_threshold(&mut self, threshold: usize) {
         self.merge_threshold = threshold;
     }
 
     /// 设置对话检测
+    #[allow(dead_code)]
     pub fn set_dialogue_detection(&mut self, enabled: bool) {
         self.enable_dialogue_detection = enabled;
     }

@@ -119,6 +119,10 @@ pub struct Cli {
     /// 显示章节识别结果（仅 dry-run 有效）
     #[arg(long)]
     pub show_chapters: bool,
+
+    /// 输入格式 (auto, txt, markdown)
+    #[arg(short = 'I', long, default_value = "auto")]
+    pub input_format: String,
 }
 
 #[cfg(test)]
@@ -152,5 +156,23 @@ mod tests {
     fn test_cli_example_config() {
         let cli = Cli::try_parse_from(["kaf-cli", "--example-config"]).unwrap();
         assert!(cli.example_config);
+    }
+
+    #[test]
+    fn test_cli_input_format_default() {
+        let cli = Cli::try_parse_from(["kaf-cli"]).unwrap();
+        assert_eq!(cli.input_format, "auto");
+    }
+
+    #[test]
+    fn test_cli_input_format_explicit() {
+        let cli = Cli::try_parse_from(["kaf-cli", "--input-format", "markdown"]).unwrap();
+        assert_eq!(cli.input_format, "markdown");
+    }
+
+    #[test]
+    fn test_cli_input_format_short() {
+        let cli = Cli::try_parse_from(["kaf-cli", "-I", "txt"]).unwrap();
+        assert_eq!(cli.input_format, "txt");
     }
 }

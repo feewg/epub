@@ -109,6 +109,10 @@ pub struct Book {
     /// 主题预设
     #[serde(default)]
     pub theme: ThemePreset,
+
+    /// 输入格式
+    #[serde(default)]
+    pub input_format: InputFormat,
 }
 
 /// 封面来源
@@ -118,6 +122,13 @@ pub enum CoverSource {
     /// 本地图片
     Local {
         path: PathBuf,
+    },
+    /// 内存中的图片数据（用于程序化生成封面等场景）
+    Data {
+        /// 图片二进制数据
+        data: Vec<u8>,
+        /// MIME 类型，如 "image/jpeg"、"image/png"
+        format: String,
     },
 }
 
@@ -195,6 +206,7 @@ pub enum ThemePreset {
 
 impl ThemePreset {
     /// 获取所有预设主题列表
+    #[allow(dead_code)]
     pub fn all() -> Vec<Self> {
         vec![
             ThemePreset::Light,
@@ -207,6 +219,7 @@ impl ThemePreset {
     }
 
     /// 获取主题名称
+    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
             ThemePreset::Light => "浅色主题",
@@ -246,6 +259,19 @@ pub enum OutputFormat {
     Epub,
 }
 
+/// 输入格式
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum InputFormat {
+    /// 自动检测（默认）
+    #[default]
+    Auto,
+    /// 纯文本格式
+    Txt,
+    /// Markdown 格式
+    Markdown,
+}
+
 /// 图片位置
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -267,11 +293,11 @@ pub enum HeaderMode {
     Folder,
 }
 
-/// 默认章节匹配规则
-pub const DEFAULT_CHAPTER_MATCH: &str = r"^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集幕卷部]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\d{1,4}$|^\d+、$|^引子$|^楔子$|^章节目录|^章节|^序章|^最终章 \w{1,20}$|^番外\d?\w{0,20}|^完本感言.{0,4}$";
+/// 默认章节匹配规则（包含万位数字）
+pub const DEFAULT_CHAPTER_MATCH: &str = r"^第[0-9一二三四五六七八九十零〇百千万两 ]+[章回节集幕卷部]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\d{1,4}$|^\d+、$|^引子$|^楔子$|^章节目录|^章节|^序章|^最终章 \w{1,20}$|^番外\d?\w{0,20}|^完本感言.{0,4}$";
 
-/// 默认卷匹配规则
-pub const DEFAULT_VOLUME_MATCH: &str = r"^第[0-9一二三四五六七八九十零〇百千两 ]+[卷部]";
+/// 默认卷匹配规则（包含万位数字）
+pub const DEFAULT_VOLUME_MATCH: &str = r"^第[0-9一二三四五六七八九十零〇百千万两 ]+[卷部]";
 
 /// 默认排除规则
 pub const DEFAULT_EXCLUSION: &str = r"^第[0-9一二三四五六七八九十零〇百千两 ]+(部门|部队|部属|部分|部件|部落|部.*：$)";
@@ -325,6 +351,7 @@ impl Default for Book {
             css_variables: HashMap::new(),
             chapter_header: ChapterHeader::default(),
             theme: ThemePreset::default(),
+            input_format: InputFormat::default(),
         }
     }
 }

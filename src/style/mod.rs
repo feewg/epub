@@ -5,5 +5,5 @@
 pub mod theme;
 pub mod css_generator;
 
-pub use theme::{Theme, ColorScheme, Typography, Spacing};
+pub use theme::Theme;
 pub use css_generator::CssGenerator;

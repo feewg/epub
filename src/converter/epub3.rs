@@ -3,7 +3,8 @@
 //! 使用 epub-builder 库生成符合标准的 EPUB 文件
 
 use crate::error::{KafError, Result};
-use crate::model::{Book, Section};
+use crate::model::{Book, CoverSource, Section};
+use crate::utils::cover::{self, CoverConfig};
 use crate::utils::html::escape_xml;
 use epub_builder::{EpubBuilder, EpubContent, ReferenceType, ZipLibrary};
 use std::collections::HashMap;
@@ -36,7 +37,7 @@ impl EpubConverter3 {
         let title = self.book.bookname.clone().unwrap_or_else(|| "Unknown".to_string());
         builder.metadata("title", &title)?;
         builder.metadata("author", &self.book.author)?;
-        builder.metadata("lang", &format!("{:?}", self.book.lang).to_lowercase())?;
+        builder.metadata("lang", format!("{:?}", self.book.lang).to_lowercase())?;
 
         // 添加字体（如果有）
         if let Some(ref font_path) = self.book.font {
@@ -49,18 +50,54 @@ impl EpubConverter3 {
 
         // 添加封面（如果有）
         if let Some(ref cover_source) = self.book.cover {
+            let base_dir = self.book.filename.parent();
+            let cover_config = CoverConfig::default();
+
             match cover_source {
-                crate::model::CoverSource::Local { path } => {
-                    // 读取封面图片
-                    let cover_data = std::fs::read(path)?;
-                    let mime_type = if cover_data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-                        "image/png"
-                    } else {
-                        "image/jpeg"
-                    };
-                    // 使用 Cursor 包装 Vec<u8> 以提供 Read trait
+                CoverSource::Local { path } => {
+                    // 验证并解析封面路径（支持相对路径）
+                    let resolved_path = cover::validate_image_path(path, base_dir)?;
+
+                    tracing::info!(path = %resolved_path.display(), "读取封面图片");
+
+                    let raw_data = std::fs::read(&resolved_path)?;
+
+                    // 使用 optimize_cover 自动缩放和优化
+                    let (cover_data, mime_type) =
+                        cover::optimize_cover(&raw_data, &cover_config)?;
+
+                    tracing::info!(
+                        path = %resolved_path.display(),
+                        mime = %mime_type,
+                        size = cover_data.len(),
+                        "封面优化完成"
+                    );
+
                     let mut cursor = std::io::Cursor::new(cover_data);
-                    builder.add_cover_image(path, &mut cursor, mime_type)?;
+                    builder.add_cover_image(&resolved_path, &mut cursor, &mime_type)?;
+                }
+                CoverSource::Data { data, format } => {
+                    tracing::info!(mime = %format, size = data.len(), "使用内存中的封面数据");
+
+                    let (cover_data, mime_type) =
+                        cover::optimize_cover(data, &cover_config)?;
+
+                    tracing::info!(
+                        output_mime = %mime_type,
+                        size = cover_data.len(),
+                        "内存封面优化完成"
+                    );
+
+                    let cover_filename = PathBuf::from("cover");
+                    // 根据格式添加扩展名
+                    let ext = match mime_type.as_str() {
+                        "image/png" => "png",
+                        _ => "jpg",
+                    };
+                    let cover_path = cover_filename.with_extension(ext);
+
+                    let mut cursor = std::io::Cursor::new(cover_data);
+                    builder.add_cover_image(&cover_path, &mut cursor, &mime_type)?;
                 }
             }
         }
@@ -307,6 +344,8 @@ impl EpubConverter3 {
     }
 
     /// 嵌入字体文件
+    ///
+    /// 支持 .ttf, .otf, .woff, .woff2, .ttc 格式
     fn embed_font(&self, font_path: &Path, builder: &mut EpubBuilder<ZipLibrary>) -> Result<()> {
         if !font_path.exists() {
             return Err(KafError::FileNotFound(font_path.to_string_lossy().to_string()));
@@ -314,7 +353,8 @@ impl EpubConverter3 {
 
         // 读取字体文件
         let font_data = std::fs::read(font_path)?;
-        
+        let file_size = font_data.len();
+
         // 获取文件名
         let file_name = font_path.file_name()
             .and_then(|f: &std::ffi::OsStr| f.to_str())
@@ -323,16 +363,32 @@ impl EpubConverter3 {
                 "Invalid font filename"
             )))?;
 
-        // 获取 MIME 类型
-        let mime_type = if font_path.extension().and_then(|e: &std::ffi::OsStr| e.to_str()) == Some("ttf") {
-            "font/ttf"
-        } else {
-            "font/otf"
+        // 获取 MIME 类型（支持更多字体格式）
+        let ext = font_path.extension()
+            .and_then(|e: &std::ffi::OsStr| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let mime_type = match ext.as_str() {
+            "ttf" => "font/ttf",
+            "otf" => "font/otf",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "ttc" => "font/collection",
+            _ => "font/ttf", // 默认按 TTF 处理
         };
+
+        // 记录字体嵌入信息
+        tracing::info!(
+            path = %font_path.display(),
+            format = %ext,
+            size = file_size,
+            "嵌入字体文件"
+        );
 
         // 创建字体在 EPUB 中的路径
         let font_path_in_epub = PathBuf::from("fonts").join(file_name);
-        
+
         // 添加字体资源
         let mut cursor = std::io::Cursor::new(font_data);
         builder.add_resource(&font_path_in_epub, &mut cursor, mime_type)?;
@@ -363,20 +419,35 @@ impl EpubConverter3 {
         // 添加字体定义（如果有自定义字体）
         if let Some(ref font_path) = self.book.font {
             if let Some(file_name) = font_path.file_name().and_then(|f| f.to_str()) {
+                // 检测字体格式以确定正确的 format() 声明
+                let ext = font_path.extension()
+                    .and_then(|e: &std::ffi::OsStr| e.to_str())
+                    .unwrap_or("ttf")
+                    .to_lowercase();
+
+                let font_format = match ext.as_str() {
+                    "woff" => "woff",
+                    "woff2" => "woff2",
+                    "otf" => "opentype",
+                    "ttc" => "opentype",
+                    _ => "truetype", // ttf 及默认
+                };
+
                 let font_css = format!(
                     r#"
 /* 自定义字体 */
 @font-face {{
     font-family: 'CustomFont';
-    src: url('fonts/{}');
+    src: url('fonts/{file_name}') format('{font_format}');
     font-display: swap;
 }}
 
 body {{
-    font-family: 'CustomFont', var(--body-font), serif;
+    font-family: 'CustomFont', 'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif;
 }}
 "#,
-                    file_name
+                    file_name = file_name,
+                    font_format = font_format,
                 );
                 css.push_str(&font_css);
             }

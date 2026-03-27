@@ -7,6 +7,7 @@ use crate::model::Book;
 
 /// 验证错误
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ValidationError {
     /// 文件不存在
     FileNotFound(String),
@@ -226,16 +227,19 @@ impl ConfigValidator {
     }
 
     /// 设置最大标题长度限制
+    #[allow(dead_code)]
     pub fn set_max_title_length_limit(&mut self, limit: usize) {
         self.max_title_length_limit = limit;
     }
 
     /// 设置最小标题长度限制
+    #[allow(dead_code)]
     pub fn set_min_title_length_limit(&mut self, limit: usize) {
         self.min_title_length_limit = limit;
     }
 
     /// 设置最大缩进限制
+    #[allow(dead_code)]
     pub fn set_max_indent_limit(&mut self, limit: usize) {
         self.max_indent_limit = limit;
     }

@@ -16,7 +16,6 @@ use batch::{BatchConfig, EnhancedBatchConverter, ReportFormat};
 use clap::Parser as ClapParser;
 use config::{generate_config_examples, load_config, validate_config};
 use error::{KafError, Result};
-use kaf_cli::{CssGenerator, Theme};
 use parser::Parser;
 use tracing::{error, info, warn};
 use tracing_subscriber::fmt;
@@ -76,6 +75,7 @@ async fn main() -> Result<()> {
     let bookname = book.bookname.clone().unwrap_or_else(|| "Unknown".to_string());
     info!("书名: {}", bookname);
     info!("作者: {}", book.author);
+    info!("输入格式: {:?}", book.input_format);
 
     // 解析文件
     let mut parser = Parser::new(book.clone());
@@ -177,7 +177,7 @@ fn generate_and_save_report(
     output_dir: &Option<std::path::PathBuf>,
 ) -> Result<()> {
     // 解析报告格式
-    let format = ReportFormat::from_str(report_format)?;
+    let format = ReportFormat::parse(report_format)?;
 
     // 确定报告输出目录
     let report_dir = output_dir.as_ref()

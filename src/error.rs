@@ -57,6 +57,10 @@ pub enum KafError {
     /// EPUB Builder 错误
     #[error("EPUB Builder 错误: {0}")]
     EpubBuilder(String),
+
+    /// 封面处理失败
+    #[error("封面处理失败: {0}")]
+    CoverError(String),
 }
 
 /// 结果类型别名

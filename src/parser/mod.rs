@@ -1,21 +1,27 @@
 //! 解析器模块
 //!
-//! 提供智能的文本解析能力，包括章节识别、段落处理等
+//! 提供智能的文本解析能力，包括章节识别、段落处理等。
+//! 支持 TXT 和 Markdown 两种输入格式。
 
 mod chapter_detector;
+mod format_detector;
+mod markdown_parser;
 mod paragraph_processor;
-mod scorer;
+pub mod scorer;
 
 pub use chapter_detector::ChapterDetector;
-pub use paragraph_processor::{ParagraphProcessor, ParagraphMode};
-pub use scorer::ScoreCalculator;
+pub use format_detector::FormatDetector;
+pub use markdown_parser::MarkdownParser;
+pub use paragraph_processor::ParagraphProcessor;
+
 
 use crate::error::{KafError, Result};
-use crate::model::{Book, Section};
+use crate::model::{Book, InputFormat, Section};
 use crate::utils::encoding::{detect_and_convert, ensure_no_bom};
 use crate::utils::regex::RegexCache;
 use std::fs;
 use std::io::{BufRead, BufReader, Cursor};
+use tracing::{debug, info};
 
 /// 解析器结构体
 pub struct Parser {
@@ -39,7 +45,7 @@ impl Parser {
         }
     }
 
-    /// 解析 TXT 文件
+    /// 解析文件（自动检测格式或使用指定格式）
     pub fn parse(&mut self) -> Result<Vec<Section>> {
         // 1. 读取文件
         let bytes = fs::read(&self.book.filename)?;
@@ -47,33 +53,78 @@ impl Parser {
         // 2. 检测并转换编码
         let content = detect_and_convert(&bytes)?;
 
-        // 3. 解析内容
-        self.parse_content(&content)
+        // 3. 确定输入格式
+        let format = match self.book.input_format {
+            InputFormat::Auto => {
+                let detected = FormatDetector::detect(&self.book.filename, &content);
+                debug!("自动检测输入格式: {:?}", detected);
+                detected
+            }
+            other => {
+                debug!("使用指定输入格式: {:?}", other);
+                other
+            }
+        };
+
+        // 4. 根据格式选择解析器
+        info!("输入格式: {:?}", format);
+        match format {
+            InputFormat::Markdown => self.parse_markdown(&content),
+            InputFormat::Txt | InputFormat::Auto => self.parse_txt(&content),
+        }
+    }
+
+    /// 解析 Markdown 文件
+    fn parse_markdown(&mut self, content: &str) -> Result<Vec<Section>> {
+        let mut parser = MarkdownParser::new();
+        let sections = parser.parse(content)?;
+        debug!("Markdown 解析完成，共 {} 个章节", sections.len());
+        Ok(sections)
+    }
+
+    /// 解析 TXT 文件
+    fn parse_txt(&mut self, content: &str) -> Result<Vec<Section>> {
+        self.parse_content(content)
     }
 
     /// 流式解析 TXT 文件（适用于大文件）
-    ///
-    /// 此方法逐行读取文件，避免一次性加载整个文件到内存，
-    /// 适用于处理大型文本文件。
+    #[allow(dead_code)]
     pub fn parse_streaming(&mut self) -> Result<Vec<Section>> {
         // 1. 读取文件并检测编码
         let bytes = fs::read(&self.book.filename)?;
         let content = detect_and_convert(&bytes)?;
 
-        // 2. 使用 Cursor 进行流式读取
-        let cursor = Cursor::new(content);
-        let reader = BufReader::new(cursor);
+        // 2. 确定输入格式
+        let format = match self.book.input_format {
+            InputFormat::Auto => {
+                let detected = FormatDetector::detect(&self.book.filename, &content);
+                debug!("自动检测输入格式（流式）: {:?}", detected);
+                detected
+            }
+            other => other,
+        };
 
-        // 3. 流式解析内容
-        self.parse_content_streaming(reader)
+        // 3. 流式解析（仅支持 TXT）
+        match format {
+            InputFormat::Markdown => {
+                info!("Markdown 不支持流式解析，切换到普通解析");
+                self.parse_markdown(&content)
+            }
+            InputFormat::Txt | InputFormat::Auto => {
+                // 使用 Cursor 进行流式读取
+                let cursor = Cursor::new(content);
+                let reader = BufReader::new(cursor);
+                self.parse_content_streaming(reader)
+            }
+        }
     }
 
     /// 解析文本内容（流式版本）
+    #[allow(dead_code)]
     fn parse_content_streaming<R: BufRead>(&mut self, reader: R) -> Result<Vec<Section>> {
         let mut sections = Vec::new();
         let mut current_section = Section::default();
         let mut lines_cache: Vec<String> = Vec::new();
-        let mut line_num: usize = 0;
 
         // 预读取缓冲区（用于上下文判断）
         const LOOKAHEAD_LINES: usize = 3;
@@ -86,7 +137,6 @@ impl Parser {
 
             let trimmed = line.trim();
             lines_cache.push(line.clone());
-            line_num += 1;
 
             // 维护 lookahead 缓冲区
             if !trimmed.is_empty() {
@@ -96,18 +146,21 @@ impl Parser {
                 }
             }
 
-            // 转换为 &str 引用以供检测使用
-            let lines_refs: Vec<&str> = buffer_lines.iter().map(|s| s.as_str()).collect();
-
             // 跳过空行
             if trimmed.is_empty() {
                 continue;
             }
 
+            // 使用缓冲区内的位置而非全局行号，避免 scorer/chapter_detector 越界
+            let pos_in_buffer = buffer_lines.len().saturating_sub(1);
+
+            // 转换为 &str 引用以供检测使用
+            let lines_refs: Vec<&str> = buffer_lines.iter().map(|s| s.as_str()).collect();
+
             // 检查是否是卷标题
             if self.chapter_detector.detect_volume(
                 trimmed,
-                line_num,
+                pos_in_buffer,
                 &lines_refs,
                 self.book.volume_match.as_deref()
             ).is_some() {
@@ -125,7 +178,7 @@ impl Parser {
             // 检查是否是章节标题
             if self.chapter_detector.detect_chapter(
                 trimmed,
-                line_num,
+                pos_in_buffer,
                 &lines_refs,
                 self.book.chapter_match.as_deref()
             ).is_some() {
@@ -258,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_content() {
+    fn test_parse_txt_content() {
         let content = r#"第一章 开始
 
 这是第一章的内容。
@@ -275,7 +328,7 @@ mod tests {
             ..Default::default()
         };
         let mut parser = Parser::new(book);
-        let sections = parser.parse_content(content).unwrap();
+        let sections = parser.parse_txt(content).unwrap();
 
         assert_eq!(sections.len(), 2);
         assert_eq!(sections[0].title, "第一章 开始");
@@ -303,12 +356,42 @@ mod tests {
             ..Default::default()
         };
         let mut parser = Parser::new(book);
-        let sections = parser.parse_content(content).unwrap();
+        let sections = parser.parse_txt(content).unwrap();
 
         assert_eq!(sections.len(), 4);
         assert_eq!(sections[0].title, "第一卷 开始");
         assert_eq!(sections[1].title, "第一章 开端");
         assert_eq!(sections[2].title, "第二卷 发展");
         assert_eq!(sections[3].title, "第二章 延续");
+    }
+
+    #[test]
+    fn test_parse_markdown_content() {
+        let content = r#"# 第一章 开始
+
+这是第一章的内容。
+
+## 第一节
+
+这是第一节的内容。
+
+# 第二章 结束
+
+这是第二章的内容。
+"#;
+
+        let book = Book {
+            filename: PathBuf::from("test.md"),
+            input_format: InputFormat::Markdown,
+            ..Default::default()
+        };
+        let mut parser = Parser::new(book);
+        let sections = parser.parse_markdown(content).unwrap();
+
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[0].title, "第一章 开始");
+        assert!(sections[0].content.contains("这是第一章的内容"));
+        assert_eq!(sections[1].title, "第一节");
+        assert_eq!(sections[2].title, "第二章 结束");
     }
 }
