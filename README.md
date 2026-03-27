@@ -3,7 +3,7 @@
 > 将 TXT/Markdown 文本转换为 EPUB 电子书的高性能命令行工具
 
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-466%20passing-brightgreen.svg)]()
 
 ## ✨ 功能特性
@@ -329,7 +329,7 @@ cargo fmt --check
 
 ## 📄 许可证
 
-MIT License
+GPL-3.0-or-later License
 
 ## 🙏 鸣谢
 
