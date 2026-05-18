@@ -22,6 +22,36 @@ impl EpubConverter3 {
         Self { book }
     }
 
+    /// 解析资源路径（字体、CSS、封面等）
+    ///
+    /// 解析顺序：绝对路径直接使用 → 基于 CWD → 基于输入文件目录
+    fn resolve_resource_path(path: &Path, input_parent: Option<&Path>) -> Result<PathBuf> {
+        if path.is_absolute() {
+            if path.exists() {
+                return Ok(path.to_path_buf());
+            }
+            return Err(KafError::FileNotFound(path.to_string_lossy().to_string()));
+        }
+
+        // 先基于 CWD
+        if let Ok(cwd) = std::env::current_dir() {
+            let candidate = cwd.join(path);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+
+        // 再基于输入文件目录
+        if let Some(base) = input_parent {
+            let candidate = base.join(path);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+
+        Err(KafError::FileNotFound(path.to_string_lossy().to_string()))
+    }
+
     /// 生成 EPUB 文件
     pub async fn generate(&self, sections: &[Section]) -> Result<Vec<u8>> {
         // 创建 ZIP 库
@@ -55,14 +85,12 @@ impl EpubConverter3 {
 
             match cover_source {
                 CoverSource::Local { path } => {
-                    // 验证并解析封面路径（支持相对路径）
-                    let resolved_path = cover::validate_image_path(path, base_dir)?;
+                    let resolved_path = Self::resolve_resource_path(path, base_dir)?;
 
                     tracing::info!(path = %resolved_path.display(), "读取封面图片");
 
                     let raw_data = std::fs::read(&resolved_path)?;
 
-                    // 使用 optimize_cover 自动缩放和优化
                     let (cover_data, mime_type) =
                         cover::optimize_cover(&raw_data, &cover_config)?;
 
@@ -73,8 +101,14 @@ impl EpubConverter3 {
                         "封面优化完成"
                     );
 
+                    let ext = match mime_type.as_str() {
+                        "image/png" => "png",
+                        _ => "jpg",
+                    };
+                    let cover_path_in_epub = PathBuf::from(format!("cover.{}", ext));
+
                     let mut cursor = std::io::Cursor::new(cover_data);
-                    builder.add_cover_image(&resolved_path, &mut cursor, &mime_type)?;
+                    builder.add_cover_image(&cover_path_in_epub, &mut cursor, &mime_type)?;
                 }
                 CoverSource::Data { data, format } => {
                     tracing::info!(mime = %format, size = data.len(), "使用内存中的封面数据");
@@ -88,13 +122,12 @@ impl EpubConverter3 {
                         "内存封面优化完成"
                     );
 
-                    let cover_filename = PathBuf::from("cover");
-                    // 根据格式添加扩展名
+                    // 生成 EPUB 内部的封面路径
                     let ext = match mime_type.as_str() {
                         "image/png" => "png",
                         _ => "jpg",
                     };
-                    let cover_path = cover_filename.with_extension(ext);
+                    let cover_path = PathBuf::from(format!("cover.{}", ext));
 
                     let mut cursor = std::io::Cursor::new(cover_data);
                     builder.add_cover_image(&cover_path, &mut cursor, &mime_type)?;
@@ -184,43 +217,45 @@ impl EpubConverter3 {
         match self.book.chapter_header.mode {
             crate::model::HeaderMode::Folder => {
                 if let Some(ref folder) = self.book.chapter_header.image_folder {
-                    if folder.exists() && folder.is_dir() {
-                        // 读取文件夹中的所有图片
-                        let mut available_images: Vec<PathBuf> = Vec::new();
-                        let mut entries = tokio::fs::read_dir(folder).await?;
-                        
-                        while let Some(entry) = entries.next_entry().await? {
-                            let path = entry.path();
-                            let ext = path.extension().and_then(|e| e.to_str())
-                                .map(|e| e.to_lowercase());
-                            if matches!(ext.as_deref(), Some("jpg") | Some("jpeg") | Some("png") | Some("webp") | Some("gif")) {
-                                available_images.push(path);
-                            }
-                        }
+                    let resolved_folder = Self::resolve_resource_path(folder, self.book.filename.parent());
+                    if let Ok(ref folder_path) = resolved_folder {
+                        if folder_path.is_dir() {
+                            let mut available_images: Vec<PathBuf> = Vec::new();
+                            let mut entries = tokio::fs::read_dir(folder_path).await?;
 
-                        // 预编译数字匹配正则
-                        let number_re = regex::Regex::new(r"\d+")?;
-
-                        // 为每个章节匹配图片
-                        for (index, section) in sections.iter().enumerate() {
-                            // 尝试完整匹配章节名
-                            if let Some(img) = available_images.iter()
-                                .find(|img: &&PathBuf| {
-                                    let name = img.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                                    section.title.contains(name) || name.contains(&section.title)
-                                }) {
-                                images.insert(index, img.clone());
-                                continue;
+                            while let Some(entry) = entries.next_entry().await? {
+                                let path = entry.path();
+                                let ext = path.extension().and_then(|e| e.to_str())
+                                    .map(|e| e.to_lowercase());
+                                if matches!(ext.as_deref(), Some("jpg") | Some("jpeg") | Some("png") | Some("webp") | Some("gif")) {
+                                    available_images.push(path);
+                                }
                             }
 
-                            // 尝试数字匹配
-                            if let Some(nums) = number_re.find(&section.title) {
+                            // 预编译数字匹配正则
+                            let number_re = regex::Regex::new(r"\d+")?;
+
+                            // 为每个章节匹配图片
+                            for (index, section) in sections.iter().enumerate() {
+                                // 尝试完整匹配章节名
                                 if let Some(img) = available_images.iter()
                                     .find(|img: &&PathBuf| {
                                         let name = img.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                                        name.contains(nums.as_str())
+                                        section.title.contains(name) || name.contains(&section.title)
                                     }) {
                                     images.insert(index, img.clone());
+                                    continue;
+                                }
+
+                                // 尝试数字匹配
+                                if let Some(nums) = number_re.find(&section.title) {
+                                    if let Some(img) = available_images.iter()
+                                        .find(|img: &&PathBuf| {
+                                            let name = img.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                                            name.contains(nums.as_str())
+                                        }) {
+                                        images.insert(index, img.clone());
+                                    }
                                 }
                             }
                         }
@@ -230,9 +265,9 @@ impl EpubConverter3 {
             crate::model::HeaderMode::Single => {
                 // 所有章节使用同一张图片
                 if let Some(ref img) = self.book.chapter_header.image {
-                    if img.exists() {
+                    if let Ok(resolved) = Self::resolve_resource_path(img, self.book.filename.parent()) {
                         for (index, _) in sections.iter().enumerate() {
-                            images.insert(index, img.clone());
+                            images.insert(index, resolved.clone());
                         }
                     }
                 }
@@ -347,16 +382,14 @@ impl EpubConverter3 {
     ///
     /// 支持 .ttf, .otf, .woff, .woff2, .ttc 格式
     fn embed_font(&self, font_path: &Path, builder: &mut EpubBuilder<ZipLibrary>) -> Result<()> {
-        if !font_path.exists() {
-            return Err(KafError::FileNotFound(font_path.to_string_lossy().to_string()));
-        }
+        let resolved = Self::resolve_resource_path(font_path, self.book.filename.parent())?;
 
         // 读取字体文件
-        let font_data = std::fs::read(font_path)?;
+        let font_data = std::fs::read(&resolved)?;
         let file_size = font_data.len();
 
         // 获取文件名
-        let file_name = font_path.file_name()
+        let file_name = resolved.file_name()
             .and_then(|f: &std::ffi::OsStr| f.to_str())
             .ok_or_else(|| KafError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -364,7 +397,7 @@ impl EpubConverter3 {
             )))?;
 
         // 获取 MIME 类型（支持更多字体格式）
-        let ext = font_path.extension()
+        let ext = resolved.extension()
             .and_then(|e: &std::ffi::OsStr| e.to_str())
             .unwrap_or("")
             .to_lowercase();
@@ -380,7 +413,7 @@ impl EpubConverter3 {
 
         // 记录字体嵌入信息
         tracing::info!(
-            path = %font_path.display(),
+            path = %resolved.display(),
             format = %ext,
             size = file_size,
             "嵌入字体文件"
@@ -455,8 +488,9 @@ body {{
 
         // 保留：加载旧版自定义 CSS 文件（向后兼容）
         if let Some(ref custom_css_path) = self.book.custom_css {
-            if custom_css_path.exists() {
-                match std::fs::read_to_string(custom_css_path) {
+            let resolved_css = Self::resolve_resource_path(custom_css_path, self.book.filename.parent());
+            if let Ok(ref css_path) = resolved_css {
+                match std::fs::read_to_string(css_path) {
                     Ok(custom_css) => {
                         css.push('\n');
                         css.push_str("/* 用户自定义 CSS（覆盖） */\n");
