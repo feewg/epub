@@ -62,8 +62,10 @@ impl ParagraphProcessor {
         }
 
         let cleaned = ensure_no_bom(text.trim());
+        // 对正文进行 HTML 转义，避免 &, <, > 等字符破坏 XHTML 结构
+        let escaped = crate::utils::html::escape_xml(&cleaned);
 
-        format!("<p>{}{}</p>", self.cached_indent, cleaned)
+        format!("<p>{}{}</p>", self.cached_indent, escaped)
     }
 
     /// 处理多行内容（智能合并）

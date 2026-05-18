@@ -15,11 +15,9 @@ pub fn detect_and_convert(content: &[u8]) -> Result<String> {
 
     // 2. 尝试所有编码（按常见程度排序）
     for encoding in [UTF_8, GBK, BIG5] {
-        let mut decoder = encoding.new_decoder();
-        let mut text = String::new();
-        let (result, _, used) = decoder.decode_to_str_without_replacement(content, &mut text, false);
-        if result == encoding_rs::DecoderResult::InputEmpty && used == content.len() && !text.contains('\u{FFFD}') {
-            return Ok(text);
+        let (text, _encoding_used, had_errors) = encoding.decode(content);
+        if !had_errors && !text.contains('\u{FFFD}') {
+            return Ok(text.to_string());
         }
     }
 
@@ -57,10 +55,8 @@ pub fn detect_encoding(content: &[u8]) -> &'static Encoding {
 
     // 尝试所有编码（按常见程度排序）
     for encoding in [UTF_8, GBK, BIG5] {
-        let mut decoder = encoding.new_decoder();
-        let mut text = String::new();
-        let (_, _, used) = decoder.decode_to_str_without_replacement(content, &mut text, false);
-        if used == content.len() && !text.contains('\u{FFFD}') {
+        let (text, _, had_errors) = encoding.decode(content);
+        if !had_errors && !text.contains('\u{FFFD}') {
             return encoding;
         }
     }

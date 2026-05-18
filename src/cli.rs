@@ -9,7 +9,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, Clone)]
 #[command(name = "kaf-cli")]
 #[command(author = "kaf-rs team")]
-#[command(version = "0.1.0")]
+#[command(version = "0.2.2")]
 #[command(about = "Convert txt to epub ebook", long_about = None)]
 pub struct Cli {
     /// txt 文件名

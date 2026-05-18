@@ -159,8 +159,17 @@ impl BatchConverter {
         let mut tasks = Vec::new();
 
         for book in books {
-            let _permit = semaphore.clone().acquire_owned().await.ok();
+            let permit = match semaphore.clone().acquire_owned().await {
+                Ok(p) => p,
+                Err(e) => {
+                    error!("获取信号量失败: {}", e);
+                    break;
+                }
+            };
+
             let task = tokio::spawn(async move {
+                // permit 必须在 task 内部持有，确保任务完成前信号量不被释放
+                let _permit = permit;
                 let filename = book.filename.clone();
                 let bookname = book.bookname.clone().unwrap_or_default();
 
@@ -217,6 +226,8 @@ impl BatchConverter {
             .join(format!("{}.epub", output_name));
 
         // 解析文件（同步操作在阻塞线程中执行）
+        // 注意：book 的所有权移入闭包，后续生成 EPUB 需要再克隆一份
+        let book_for_epub = book.clone();
         let sections = tokio::task::spawn_blocking(move || {
             let mut parser = Parser::new(book);
             parser.parse()
@@ -224,11 +235,8 @@ impl BatchConverter {
             crate::error::KafError::Unknown(format!("Task join error: {}", e))
         })??;
 
-        // 生成 EPUB
-        let converter = EpubConverter3::new(Book {
-            filename: filename.clone(),
-            ..Default::default()
-        });
+        // 生成 EPUB（使用完整的 Book 配置，而非空默认值）
+        let converter = EpubConverter3::new(book_for_epub);
         let epub_data = converter.generate(&sections).await?;
 
         // 写入文件

@@ -44,6 +44,7 @@ impl Default for CoverConfig {
 }
 
 /// 支持的图片扩展名列表
+#[allow(dead_code)]
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "avif"];
 
 /// 从封面源获取封面图片数据
@@ -299,6 +300,7 @@ pub fn format_to_mime(format: &ImageFormat) -> String {
 /// 验证路径是否为图片文件
 ///
 /// 通过扩展名和 magic bytes 双重检测
+#[allow(dead_code)]
 pub fn is_image_file(path: &Path) -> bool {
     // 首先检查扩展名
     let ext_match = path.extension()
@@ -326,6 +328,7 @@ pub fn is_image_file(path: &Path) -> bool {
 /// - 如果是相对路径，则根据 base_dir（输入文件所在目录）进行解析
 /// - 检查文件是否存在
 /// - 验证是否为有效图片
+#[allow(dead_code)]
 pub fn validate_image_path(path: &Path, base_dir: Option<&Path>) -> Result<std::path::PathBuf> {
     let resolved = if path.is_absolute() {
         path.to_path_buf()

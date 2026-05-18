@@ -2,6 +2,8 @@
 
 use super::scorer::{ChapterScore, ScoringFactors, ScoreCalculator};
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 static VOLUME_RE: Lazy<regex::Regex> = Lazy::new(|| {
     regex::Regex::new(r"^(第[0-9一二三四五六七八九十零〇百千万两]+[卷部]|[卷部][0-9一二三四五六七八九十零〇百千万两]+)")
@@ -12,6 +14,28 @@ static CHAPTER_RE: Lazy<regex::Regex> = Lazy::new(|| {
     regex::Regex::new(r"^(第[0-9一二三四五六七八九十零〇百千万两]+[章回节]|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s*\d+)")
         .expect("章节标题正则编译失败")
 });
+
+/// 正则缓存：避免在章节检测循环中反复编译同一正则
+static CUSTOM_PATTERN_CACHE: Lazy<Mutex<HashMap<String, regex::Regex>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// 从缓存获取或编译正则表达式
+fn get_or_compile_pattern(pattern: &str) -> Option<regex::Regex> {
+    let cache = CUSTOM_PATTERN_CACHE.lock().unwrap();
+    if let Some(re) = cache.get(pattern) {
+        // 克隆一个 Regex（cheap operation）
+        return Some(re.clone());
+    }
+    drop(cache);
+    // 编译并缓存
+    if let Ok(re) = regex::Regex::new(pattern) {
+        let mut cache = CUSTOM_PATTERN_CACHE.lock().unwrap();
+        cache.insert(pattern.to_string(), re.clone());
+        Some(re)
+    } else {
+        None
+    }
+}
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -54,7 +78,9 @@ impl ChapterDetector {
         let trimmed = text.trim();
 
         let has_chapter_format = if let Some(pattern) = custom_pattern {
-            regex::Regex::new(pattern).map(|re| re.is_match(trimmed)).unwrap_or(false)
+            get_or_compile_pattern(pattern)
+                .map(|re| re.is_match(trimmed))
+                .unwrap_or(false)
         } else {
             CHAPTER_RE.is_match(trimmed)
         };
@@ -103,7 +129,16 @@ impl ChapterDetector {
     ) -> Option<ChapterMatchResult> {
         let trimmed = text.trim();
 
-        if !VOLUME_RE.is_match(trimmed) {
+        // 使用自定义正则或内置正则
+        let has_volume_format = if let Some(pattern) = custom_pattern {
+            get_or_compile_pattern(pattern)
+                .map(|re| re.is_match(trimmed))
+                .unwrap_or(false)
+        } else {
+            VOLUME_RE.is_match(trimmed)
+        };
+
+        if !has_volume_format {
             return None;
         }
 
@@ -138,8 +173,10 @@ impl ChapterDetector {
         let trimmed = text.trim();
 
         let has_prefix = trimmed.starts_with("  ")
-            || trimmed.starts_with("\t")
-            || regex::Regex::new(r"^\d+\.\d+").unwrap().is_match(trimmed);
+            || trimmed.starts_with('\t')
+            || get_or_compile_pattern(r"^\d+\.\d+")
+                .map(|re| re.is_match(trimmed))
+                .unwrap_or(false);
 
         if !has_prefix {
             return None;

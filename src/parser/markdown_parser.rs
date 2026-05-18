@@ -257,39 +257,60 @@ impl MarkdownParser {
 
     /// 提取 YAML frontmatter
     fn extract_frontmatter<'a>(&self, content: &'a str) -> (&'a str, Frontmatter) {
-        let mut lines = content.lines();
+        let all_lines: Vec<&str> = content.lines().collect();
 
         // 检查文件是否以 `---` 开头
-        let first_line = match lines.next() {
-            Some(line) if line.trim() == "---" => line,
-            _ => return (content, Frontmatter::default()),
-        };
+        if all_lines.is_empty() || all_lines[0].trim() != "---" {
+            return (content, Frontmatter::default());
+        }
 
         // 收集 frontmatter 内容直到下一个 `---`
         let mut yaml_lines = Vec::new();
-        let mut end_pos = first_line.len() + 1; // +1 for \n
+        let mut end_line_idx = 1; // 跳过第一个 ---
 
-        for line in lines {
-            end_pos += line.len() + 1; // +1 for \n
-            if line.trim() == "---" {
+        for i in 1..all_lines.len() {
+            if all_lines[i].trim() == "---" {
+                end_line_idx = i;
                 break;
             }
-            yaml_lines.push(line);
+            yaml_lines.push(all_lines[i]);
+            end_line_idx = i;
         }
 
-        // 如果没有找到结束的 `---`，不是有效的 frontmatter
-        if yaml_lines.is_empty() && content.lines().nth(1).map(|l| l.trim()) == Some("---") {
-            // 只有两个 `---` 行，没有内容
-            let yaml_content = "";
-            let metadata = self.parse_yaml_frontmatter(yaml_content);
-            debug!("提取到空的 YAML frontmatter");
-            return (&content[end_pos..], metadata);
+        // 如果没有找到结束的 `---`，不是有效的 frontmatter，返回原始内容
+        if end_line_idx >= all_lines.len() || all_lines[end_line_idx].trim() != "---" {
+            return (content, Frontmatter::default());
         }
 
         let yaml_content = yaml_lines.join("\n");
         let metadata = self.parse_yaml_frontmatter(&yaml_content);
         debug!("提取到 YAML frontmatter: {:?}", metadata);
-        (&content[end_pos..], metadata)
+
+        // 计算正文起始字节位置（安全地通过行索引跳过）
+        let body_start_line = end_line_idx + 1;
+        if body_start_line >= all_lines.len() {
+            return ("", metadata);
+        }
+
+        // 通过查找第 N 个换行符来定位字节偏移
+        let mut line_count = 0;
+        let mut byte_pos = 0;
+        for (i, ch) in content.char_indices() {
+            if ch == '\n' {
+                line_count += 1;
+                if line_count == body_start_line {
+                    byte_pos = i + 1;
+                    break;
+                }
+            }
+        }
+
+        // 如果没找到足够的换行符（最后一行无换行），返回空
+        if line_count < body_start_line {
+            return ("", metadata);
+        }
+
+        (&content[byte_pos..], metadata)
     }
 
     /// 解析简单的 YAML frontmatter（不依赖 serde_yaml，保持轻量）
@@ -474,11 +495,6 @@ impl MarkdownParser {
     /// 处理链接标记（跳过图片标记 `![`）
     fn process_links(&self, text: &str) -> String {
         RE_LINK.replace_all(text, |caps: &regex::Captures| {
-            let full_match = caps.get(0).unwrap().as_str();
-            // 跳过图片标记（以 `![` 开头）
-            if full_match.starts_with("![") {
-                return full_match.to_string();
-            }
             format!("<a href=\"{}\">{}</a>", &caps[2], &caps[1])
         }).to_string()
     }

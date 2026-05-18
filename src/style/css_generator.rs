@@ -134,29 +134,34 @@ h5, h6 {{
     }
 
     /// 生成段落样式
-    fn generate_paragraph_styles(&self, _book: &Book, _theme: &Theme) -> String {
-        r#"/* 段落样式 */
-p {
-    margin-bottom: var(--paragraph-spacing);
-    text-indent: var(--paragraph-indent);
+    fn generate_paragraph_styles(&self, book: &Book, _theme: &Theme) -> String {
+        let indent_em = book.indent as f32;
+        let spacing = &book.paragraph_spacing;
+        let line_height = book.line_height.as_deref().unwrap_or("1.8");
+
+        format!(r#"/* 段落样式 */
+p {{
+    margin-bottom: {};
+    text-indent: {}em;
+    line-height: {};
     orphans: 2;
     widows: 2;
-}
+}}
 
-p.no-indent {
+p.no-indent {{
     text-indent: 0;
-}
+}}
 
 /* 首字下沉（可选） */
-.drop-cap::first-letter {
+.drop-cap::first-letter {{
     float: left;
     font-size: 3em;
     line-height: 0.8;
     padding-right: 0.1em;
     font-weight: bold;
     color: var(--accent-color);
-}
-"#.to_string()
+}}
+"#, spacing, indent_em, line_height)
     }
 
     /// 生成特殊元素样式

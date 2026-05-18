@@ -292,7 +292,7 @@ impl ScoreCalculator {
         }
 
         if trimmed.contains('?') || trimmed.contains('！') || trimmed.contains('？') {
-            score += 0.2;
+            score -= 0.2; // 疑问句/感叹句不应该是章节标题，扣分
         }
 
         if trimmed.contains('：') || trimmed.contains(':') {

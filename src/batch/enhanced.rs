@@ -91,6 +91,11 @@ impl EnhancedBatchConverter {
             let report_clone = report.clone();
             let config_clone = self.config.clone();
 
+            // 为错误处理预留的克隆（因为 process_book 会 move config/error_count/should_stop）
+            let max_errors = config_clone.max_errors;
+            let error_count_for_err = error_count_clone.clone();
+            let should_stop_for_err = should_stop_clone.clone();
+
             let task = tokio::spawn(async move {
                 // 使用 permit 确保完成后释放
                 let _permit = permit;
@@ -127,6 +132,13 @@ impl EnhancedBatchConverter {
                             };
                             report.files.push(file_result);
                             error!("处理失败: {} - {}", bookname, err);
+
+                            // 递增错误计数并检查是否应停止
+                            let count = error_count_for_err.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            if max_errors > 0 && count >= max_errors {
+                                should_stop_for_err.store(true, std::sync::atomic::Ordering::Relaxed);
+                                warn!("已达到最大错误数量 ({})，将停止后续任务", max_errors);
+                            }
                         }
                     }
                 }
@@ -148,6 +160,9 @@ impl EnhancedBatchConverter {
         let final_duration = start.elapsed().as_secs_f64();
         let mut final_report = report.lock().unwrap().clone();
 
+        // 更新报告时间戳为实际完成时间
+        final_report.timestamp = chrono::Utc::now().to_rfc3339();
+
         // 更新汇总信息
         Self::update_summary(&mut final_report, final_duration);
 
@@ -158,8 +173,8 @@ impl EnhancedBatchConverter {
     async fn process_book(
         book: &Book,
         config: BatchConfig,
-        _error_count: Arc<std::sync::atomic::AtomicUsize>,
-        _should_stop: Arc<std::sync::atomic::AtomicBool>,
+        #[allow(unused_variables)] error_count: Arc<std::sync::atomic::AtomicUsize>,
+        #[allow(unused_variables)] should_stop: Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<FileConversionResult> {
         let start = Instant::now();
         let input_file = &book.filename;

@@ -254,7 +254,6 @@ impl Default for ConfigValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{ChapterHeader, CoverSource};
     use std::path::PathBuf;
 
     #[test]
