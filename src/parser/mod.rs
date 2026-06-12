@@ -216,7 +216,8 @@ impl Parser {
     }
 
     /// 解析文本内容
-    fn parse_content(&mut self, content: &str) -> Result<Vec<Section>> {
+    #[doc(hidden)]
+    pub fn parse_content(&mut self, content: &str) -> Result<Vec<Section>> {
         let mut sections = Vec::new();
         let mut current_section = Section::default();
 

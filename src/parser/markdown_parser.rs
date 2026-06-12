@@ -268,12 +268,12 @@ impl MarkdownParser {
         let mut yaml_lines = Vec::new();
         let mut end_line_idx = 1; // 跳过第一个 ---
 
-        for i in 1..all_lines.len() {
-            if all_lines[i].trim() == "---" {
+        for (i, line) in all_lines.iter().enumerate().skip(1) {
+            if line.trim() == "---" {
                 end_line_idx = i;
                 break;
             }
-            yaml_lines.push(all_lines[i]);
+            yaml_lines.push(*line);
             end_line_idx = i;
         }
 

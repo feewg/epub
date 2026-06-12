@@ -279,8 +279,7 @@ mod tests {
         // 文件可能不存在，所以这里只验证其他字段
         let result = validator.validate(&book);
         // 如果文件不存在会失败，这是预期的
-        if result.is_err() {
-            let err = result.unwrap_err();
+        if let Err(err) = result {
             assert!(matches!(err, KafError::ParseError(_)));
         }
     }
