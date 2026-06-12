@@ -5,10 +5,12 @@
 pub mod loader;
 pub mod validator;
 pub mod presets;
+pub mod parsers;
 
 pub use loader::ConfigLoader;
 pub use validator::ConfigValidator;
 pub use presets::generate_config_examples;
+pub use parsers::{parse_align, parse_format, parse_input_format, parse_lang, parse_theme};
 
 use crate::cli::Cli;
 use crate::error::Result;

@@ -113,6 +113,10 @@ pub struct Book {
     /// 输入格式
     #[serde(default)]
     pub input_format: InputFormat,
+
+    /// 流式解析时向前查看的行数
+    #[serde(default = "default_lookahead_lines")]
+    pub lookahead_lines: usize,
 }
 
 /// 封面来源
@@ -323,6 +327,10 @@ fn default_paragraph_spacing() -> String {
     "0.5em".to_string()
 }
 
+fn default_lookahead_lines() -> usize {
+    3
+}
+
 impl Default for Book {
     fn default() -> Self {
         Self {
@@ -352,6 +360,7 @@ impl Default for Book {
             chapter_header: ChapterHeader::default(),
             theme: ThemePreset::default(),
             input_format: InputFormat::default(),
+            lookahead_lines: default_lookahead_lines(),
         }
     }
 }

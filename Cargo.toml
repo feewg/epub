@@ -42,7 +42,7 @@ thiserror = "1.0"
 
 # 日志
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # ZIP 压缩（EPUB）
 zip = "0.6"

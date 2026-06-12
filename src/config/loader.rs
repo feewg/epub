@@ -3,8 +3,9 @@
 //! 负责从不同来源加载和合并配置
 
 use crate::cli::Cli;
+use crate::config::parsers;
 use crate::error::{KafError, Result};
-use crate::model::{Book, Language, OutputFormat, TextAlignment};
+use crate::model::Book;
 use serde_yaml::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -148,13 +149,13 @@ impl ConfigLoader {
 
         // 枚举字段
         if let Some(s) = config.get("align").and_then(|v| v.as_str()) {
-            book.align = Self::parse_align(s)?;
+            book.align = parsers::parse_align(s)?;
         }
         if let Some(s) = config.get("lang").and_then(|v| v.as_str()) {
-            book.lang = Self::parse_lang(s)?;
+            book.lang = parsers::parse_lang(s)?;
         }
         if let Some(s) = config.get("format").and_then(|v| v.as_str()) {
-            book.format = Self::parse_format(s)?;
+            book.format = parsers::parse_format(s)?;
         }
 
         // 自定义 CSS
@@ -184,12 +185,12 @@ impl ConfigLoader {
 
         // 主题
         if let Some(s) = config.get("theme").and_then(|v| v.as_str()) {
-            book.theme = Self::parse_theme(s)?;
+            book.theme = parsers::parse_theme(s)?;
         }
 
         // 输入格式
         if let Some(s) = config.get("input_format").and_then(|v| v.as_str()) {
-            book.input_format = Self::parse_input_format(s)?;
+            book.input_format = parsers::parse_input_format(s)?;
         }
 
         Ok(())
@@ -225,9 +226,9 @@ impl ConfigLoader {
         // 格式配置
         book.max_title_length = cli.max_title_length;
         book.indent = cli.indent;
-        book.align = Self::parse_align(&cli.align)?;
-        book.format = Self::parse_format(&cli.format)?;
-        book.lang = Self::parse_lang(&cli.lang)?;
+        book.align = parsers::parse_align(&cli.align)?;
+        book.format = parsers::parse_format(&cli.format)?;
+        book.lang = parsers::parse_lang(&cli.lang)?;
         book.separate_chapter_number = cli.separate_chapter_number;
 
         // 样式配置
@@ -253,70 +254,9 @@ impl ConfigLoader {
         }
 
         // 输入格式
-        book.input_format = Self::parse_input_format(&cli.input_format)?;
+        book.input_format = parsers::parse_input_format(&cli.input_format)?;
 
         Ok(())
-    }
-
-    /// 解析对齐方式
-    fn parse_align(s: &str) -> Result<TextAlignment> {
-        Ok(match s.to_lowercase().as_str() {
-            "left" => TextAlignment::Left,
-            "center" => TextAlignment::Center,
-            "right" => TextAlignment::Right,
-            _ => return Err(KafError::ParseError(format!("无效的对齐方式: {}", s))),
-        })
-    }
-
-    /// 解析语言
-    fn parse_lang(s: &str) -> Result<Language> {
-        Ok(match s.to_lowercase().as_str() {
-            "zh" => Language::Zh,
-            "en" => Language::En,
-            "de" => Language::De,
-            "fr" => Language::Fr,
-            "it" => Language::It,
-            "es" => Language::Es,
-            "ja" => Language::Ja,
-            "pt" => Language::Pt,
-            "ru" => Language::Ru,
-            "nl" => Language::Nl,
-            _ => return Err(KafError::ParseError(format!("无效的语言: {}", s))),
-        })
-    }
-
-    /// 解析输出格式
-    fn parse_format(s: &str) -> Result<OutputFormat> {
-        Ok(match s.to_lowercase().as_str() {
-            "epub" => OutputFormat::Epub,
-            "all" => OutputFormat::All,
-            _ => return Err(KafError::ParseError(format!("无效的输出格式: {}", s))),
-        })
-    }
-
-    /// 解析输入格式
-    fn parse_input_format(s: &str) -> Result<crate::model::InputFormat> {
-        use crate::model::InputFormat;
-        Ok(match s.to_lowercase().as_str() {
-            "auto" => InputFormat::Auto,
-            "txt" | "text" => InputFormat::Txt,
-            "markdown" | "md" => InputFormat::Markdown,
-            _ => return Err(KafError::ParseError(format!("无效的输入格式: {}", s))),
-        })
-    }
-
-    /// 解析主题
-    fn parse_theme(s: &str) -> Result<crate::model::ThemePreset> {
-        use crate::model::ThemePreset;
-        Ok(match s.to_lowercase().as_str() {
-            "light" => ThemePreset::Light,
-            "dark" => ThemePreset::Dark,
-            "sepia" => ThemePreset::Sepia,
-            "high_contrast" | "high-contrast" | "highcontrast" => ThemePreset::HighContrast,
-            "modern" => ThemePreset::Modern,
-            "traditional" => ThemePreset::Traditional,
-            _ => return Err(KafError::ParseError(format!("无效的主题: {}", s))),
-        })
     }
 }
 
@@ -329,6 +269,7 @@ impl Default for ConfigLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Language, OutputFormat, TextAlignment};
 
     #[test]
     fn test_config_loader_creation() {
@@ -338,23 +279,23 @@ mod tests {
 
     #[test]
     fn test_parse_align() {
-        assert!(matches!(ConfigLoader::parse_align("left"), Ok(TextAlignment::Left)));
-        assert!(matches!(ConfigLoader::parse_align("center"), Ok(TextAlignment::Center)));
-        assert!(matches!(ConfigLoader::parse_align("right"), Ok(TextAlignment::Right)));
-        assert!(ConfigLoader::parse_align("invalid").is_err());
+        assert!(matches!(parsers::parse_align("left"), Ok(TextAlignment::Left)));
+        assert!(matches!(parsers::parse_align("center"), Ok(TextAlignment::Center)));
+        assert!(matches!(parsers::parse_align("right"), Ok(TextAlignment::Right)));
+        assert!(parsers::parse_align("invalid").is_err());
     }
 
     #[test]
     fn test_parse_lang() {
-        assert!(matches!(ConfigLoader::parse_lang("zh"), Ok(Language::Zh)));
-        assert!(matches!(ConfigLoader::parse_lang("en"), Ok(Language::En)));
-        assert!(ConfigLoader::parse_lang("invalid").is_err());
+        assert!(matches!(parsers::parse_lang("zh"), Ok(Language::Zh)));
+        assert!(matches!(parsers::parse_lang("en"), Ok(Language::En)));
+        assert!(parsers::parse_lang("invalid").is_err());
     }
 
     #[test]
     fn test_parse_format() {
-        assert!(matches!(ConfigLoader::parse_format("epub"), Ok(OutputFormat::Epub)));
-        assert!(matches!(ConfigLoader::parse_format("all"), Ok(OutputFormat::All)));
-        assert!(ConfigLoader::parse_format("invalid").is_err());
+        assert!(matches!(parsers::parse_format("epub"), Ok(OutputFormat::Epub)));
+        assert!(matches!(parsers::parse_format("all"), Ok(OutputFormat::All)));
+        assert!(parsers::parse_format("invalid").is_err());
     }
 }

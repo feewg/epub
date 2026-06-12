@@ -126,9 +126,9 @@ impl Parser {
         let mut current_section = Section::default();
         let mut lines_cache: Vec<String> = Vec::new();
 
-        // 预读取缓冲区（用于上下文判断）
-        const LOOKAHEAD_LINES: usize = 3;
-        let mut buffer_lines: Vec<String> = Vec::with_capacity(LOOKAHEAD_LINES);
+        // 从书籍配置读取预读取缓冲区大小（用于上下文判断）
+        let lookahead_lines = self.book.lookahead_lines.max(1);
+        let mut buffer_lines: Vec<String> = Vec::with_capacity(lookahead_lines);
 
         for line_result in reader.lines() {
             let line = line_result.map_err(|e| {
@@ -141,7 +141,7 @@ impl Parser {
             // 维护 lookahead 缓冲区
             if !trimmed.is_empty() {
                 buffer_lines.push(trimmed.to_string());
-                if buffer_lines.len() > LOOKAHEAD_LINES {
+                if buffer_lines.len() > lookahead_lines {
                     buffer_lines.remove(0);
                 }
             }

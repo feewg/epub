@@ -2,31 +2,27 @@
 //!
 //! 主程序入口
 
-mod batch;
-mod cli;
-mod config;
-mod converter;
-mod error;
-mod model;
-mod parser;
-mod style;
-mod utils;
-
-use batch::{BatchConfig, EnhancedBatchConverter, ReportFormat};
 use clap::Parser as ClapParser;
-use config::{generate_config_examples, load_config, validate_config};
-use error::{KafError, Result};
-use parser::Parser;
+use kaf_cli::batch::{BatchConfig, EnhancedBatchConverter, ReportFormat};
+use kaf_cli::cli::Cli;
+use kaf_cli::config::{generate_config_examples, load_config, validate_config};
+use kaf_cli::error::{KafError, Result};
+use kaf_cli::parser::Parser;
+use kaf_cli::EpubConverter3;
 use tracing::{error, info, warn};
-use tracing_subscriber::fmt;
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
-    fmt::init();
+    // 初始化日志，支持 RUST_LOG 环境变量
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .init();
 
     // 解析命令行参数
-    let cli: cli::Cli = ClapParser::parse();
+    let cli: Cli = ClapParser::parse();
 
     // 处理示例配置生成
     if cli.example_config {
@@ -51,7 +47,7 @@ async fn main() -> Result<()> {
 
     // 从文件名提取书名和作者（如果没有指定）
     if book.bookname.is_none() || book.author == "YSTYLE" {
-        if let Ok((bookname, author)) = utils::file::extract_bookname_from_filename(&book.filename)
+        if let Ok((bookname, author)) = kaf_cli::utils::file::extract_bookname_from_filename(&book.filename)
         {
             if book.bookname.is_none() {
                 book.bookname = Some(bookname);
@@ -84,7 +80,7 @@ async fn main() -> Result<()> {
     info!("解析完成，共 {} 个章节", sections.len());
 
     // 生成 EPUB（使用 EPUB 3.0 标准）
-    let converter = converter::EpubConverter3::new(book.clone());
+    let converter = EpubConverter3::new(book.clone());
     let epub_data = converter.generate(&sections).await?;
 
     // 确定输出文件名并写入文件
@@ -98,7 +94,7 @@ async fn main() -> Result<()> {
 }
 
 /// 处理批量转换
-async fn process_batch(batch_dir: &std::path::Path, cli: &cli::Cli) -> Result<()> {
+async fn process_batch(batch_dir: &std::path::Path, cli: &Cli) -> Result<()> {
     info!("开始批量转换: {:?}", batch_dir);
 
     // 创建批量转换配置
@@ -108,11 +104,11 @@ async fn process_batch(batch_dir: &std::path::Path, cli: &cli::Cli) -> Result<()
         max_errors: cli.max_errors,
         dry_run: cli.dry_run,
         show_chapters: cli.show_chapters,
-        concurrency: 4, // 默认并发数
+        concurrency: cli.concurrency as usize,
     };
 
     // 扫描文件夹
-    let scanner = batch::FolderScanner::new(batch_dir.to_path_buf(), true);
+    let scanner = kaf_cli::batch::FolderScanner::new(batch_dir.to_path_buf(), true);
     let books = scanner.scan_with_config()?;
 
     info!("找到 {} 个文件", books.len());
@@ -152,7 +148,7 @@ async fn process_batch(batch_dir: &std::path::Path, cli: &cli::Cli) -> Result<()
 }
 
 /// 打印批量转换汇总
-fn print_batch_summary(report: &batch::BatchReport) {
+fn print_batch_summary(report: &kaf_cli::batch::BatchReport) {
     println!("\n=== 批量转换汇总 ===");
     println!("总文件数: {}", report.summary.total_files);
     println!("成功转换: {}", report.summary.successful_conversions);
@@ -171,7 +167,7 @@ fn print_batch_summary(report: &batch::BatchReport) {
 
 /// 生成并保存报告
 fn generate_and_save_report(
-    report: &batch::BatchReport,
+    report: &kaf_cli::batch::BatchReport,
     report_format: &str,
     batch_dir: &std::path::Path,
     output_dir: &Option<std::path::PathBuf>,

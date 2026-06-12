@@ -96,6 +96,9 @@ impl EnhancedBatchConverter {
             let error_count_for_err = error_count_clone.clone();
             let should_stop_for_err = should_stop_clone.clone();
 
+            // 保留输入文件路径，以便任务 panic 时仍能在最终报告中记录失败
+            let input_file = book.filename.clone();
+
             let task = tokio::spawn(async move {
                 // 使用 permit 确保完成后释放
                 let _permit = permit;
@@ -146,13 +149,41 @@ impl EnhancedBatchConverter {
                 Ok::<(), crate::error::KafError>(())
             });
 
-            tasks.push(task);
+            tasks.push((task, input_file));
         }
 
         // 等待所有任务完成
-        for task in tasks {
-            if let Err(e) = task.await {
-                error!("任务执行错误: {}", e);
+        for (task, input_file) in tasks {
+            match task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(inner)) => {
+                    // 任务返回内部错误时同样记录为失败（当前任务体内已处理，此处作为兜底）
+                    error!("任务返回内部错误: {}", inner);
+                    let file_result = FileConversionResult {
+                        input_file: input_file.display().to_string(),
+                        output_file: None,
+                        status: ConversionStatus::Failed,
+                        duration_secs: 0.0,
+                        chapter_count: None,
+                        file_size_bytes: 0,
+                        error_message: Some(format!("任务内部错误: {}", inner)),
+                    };
+                    report.lock().unwrap().files.push(file_result);
+                }
+                Err(e) => {
+                    error!("任务执行错误: {}", e);
+                    // 将任务级错误记录为失败结果，避免静默丢弃
+                    let file_result = FileConversionResult {
+                        input_file: input_file.display().to_string(),
+                        output_file: None,
+                        status: ConversionStatus::Failed,
+                        duration_secs: 0.0,
+                        chapter_count: None,
+                        file_size_bytes: 0,
+                        error_message: Some(format!("任务执行错误: {}", e)),
+                    };
+                    report.lock().unwrap().files.push(file_result);
+                }
             }
         }
 
