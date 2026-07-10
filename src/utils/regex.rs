@@ -106,7 +106,7 @@ mod tests {
         let mut cache = RegexCache::new();
         // 测试 "部门" 结尾
         assert!(cache.is_excluded("第一部门", None).unwrap());
-        // 测试 "部队" 结尾  
+        // 测试 "部队" 结尾
         assert!(cache.is_excluded("第一部队", None).unwrap());
         // 测试非排除项
         assert!(!cache.is_excluded("第一章", None).unwrap());

@@ -105,8 +105,14 @@ mod tests {
     fn test_parse_theme() {
         assert_eq!(parse_theme("light").unwrap(), ThemePreset::Light);
         assert_eq!(parse_theme("Dark").unwrap(), ThemePreset::Dark);
-        assert_eq!(parse_theme("high-contrast").unwrap(), ThemePreset::HighContrast);
-        assert_eq!(parse_theme("high_contrast").unwrap(), ThemePreset::HighContrast);
+        assert_eq!(
+            parse_theme("high-contrast").unwrap(),
+            ThemePreset::HighContrast
+        );
+        assert_eq!(
+            parse_theme("high_contrast").unwrap(),
+            ThemePreset::HighContrast
+        );
         assert!(parse_theme("invalid").is_err());
     }
 }

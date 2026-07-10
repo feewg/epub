@@ -3,14 +3,14 @@
 //! 负责配置的加载、验证和合并
 
 pub mod loader;
-pub mod validator;
-pub mod presets;
 pub mod parsers;
+pub mod presets;
+pub mod validator;
 
 pub use loader::ConfigLoader;
-pub use validator::ConfigValidator;
-pub use presets::generate_config_examples;
 pub use parsers::{parse_align, parse_format, parse_input_format, parse_lang, parse_theme};
+pub use presets::generate_config_examples;
+pub use validator::ConfigValidator;
 
 use crate::cli::Cli;
 use crate::error::Result;

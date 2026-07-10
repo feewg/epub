@@ -6,7 +6,19 @@ use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::Path;
+
+fn markdown_text(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('`', "\\`")
+        .replace('|', "\\|")
+        .replace(['\r', '\n'], " ")
+}
+
+fn html_text(value: &str) -> String {
+    crate::utils::html::escape_xml(value)
+}
 
 /// 批量转换报告
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +42,9 @@ pub struct ConversionSummary {
     pub successful_conversions: usize,
     /// 失败转换数
     pub failed_conversions: usize,
+    /// 跳过转换数
+    #[serde(default)]
+    pub skipped_conversions: usize,
     /// 总耗时（秒）
     pub total_duration_secs: f64,
     /// 平均耗时（秒）
@@ -100,9 +115,12 @@ impl ReportFormat {
             "json" => ReportFormat::Json,
             "markdown" | "md" => ReportFormat::Markdown,
             "html" => ReportFormat::Html,
-            _ => return Err(crate::error::KafError::ParseError(
-                format!("Invalid report format: {}", s)
-            )),
+            _ => {
+                return Err(crate::error::KafError::ParseError(format!(
+                    "Invalid report format: {}",
+                    s
+                )))
+            }
         })
     }
 
@@ -149,32 +167,61 @@ impl ReportGenerator {
 
         // 标题
         md.push_str("# Batch Conversion Report\n\n");
-        md.push_str(&format!("Generated at: {}\n\n", report.timestamp));
+        md.push_str(&format!(
+            "Generated at: {}\n\n",
+            markdown_text(&report.timestamp)
+        ));
 
         // 汇总信息
         md.push_str("## Summary\n\n");
         md.push_str(&format!("- Total files: {}\n", report.summary.total_files));
-        md.push_str(&format!("- Successful conversions: {}\n", report.summary.successful_conversions));
-        md.push_str(&format!("- Failed conversions: {}\n", report.summary.failed_conversions));
-        md.push_str(&format!("- Total duration: {:.2} seconds\n", report.summary.total_duration_secs));
-        md.push_str(&format!("- Average duration: {:.2} seconds\n", report.summary.average_duration_secs));
-        md.push_str(&format!("- Success rate: {:.1}%\n\n", report.summary.success_rate * 100.0));
+        md.push_str(&format!(
+            "- Successful conversions: {}\n",
+            report.summary.successful_conversions
+        ));
+        md.push_str(&format!(
+            "- Failed conversions: {}\n",
+            report.summary.failed_conversions
+        ));
+        md.push_str(&format!(
+            "- Skipped conversions: {}\n",
+            report.summary.skipped_conversions
+        ));
+        md.push_str(&format!(
+            "- Total duration: {:.2} seconds\n",
+            report.summary.total_duration_secs
+        ));
+        md.push_str(&format!(
+            "- Average duration: {:.2} seconds\n",
+            report.summary.average_duration_secs
+        ));
+        md.push_str(&format!(
+            "- Success rate: {:.1}%\n\n",
+            report.summary.success_rate * 100.0
+        ));
 
         // 文件详情
         md.push_str("## File Details\n\n");
         for (i, file) in report.files.iter().enumerate() {
-            md.push_str(&format!("{}. {}\n\n", i + 1, file.input_file));
+            md.push_str(&format!(
+                "{}. {}\n\n",
+                i + 1,
+                markdown_text(&file.input_file)
+            ));
             md.push_str(&format!("   - Status: {:?}\n", file.status));
             if let Some(ref output) = file.output_file {
-                md.push_str(&format!("   - Output: {}\n", output));
+                md.push_str(&format!("   - Output: {}\n", markdown_text(output)));
             }
-            md.push_str(&format!("   - Duration: {:.2} seconds\n", file.duration_secs));
+            md.push_str(&format!(
+                "   - Duration: {:.2} seconds\n",
+                file.duration_secs
+            ));
             if let Some(count) = file.chapter_count {
                 md.push_str(&format!("   - Chapters: {}\n", count));
             }
             md.push_str(&format!("   - Size: {} bytes\n", file.file_size_bytes));
             if let Some(ref error) = file.error_message {
-                md.push_str(&format!("   - Error: {}\n", error));
+                md.push_str(&format!("   - Error: {}\n", markdown_text(error)));
             }
             md.push('\n');
         }
@@ -183,12 +230,19 @@ impl ReportGenerator {
         if !report.errors.is_empty() {
             md.push_str("## Error Details\n\n");
             for (i, error) in report.errors.iter().enumerate() {
-                md.push_str(&format!("### {}. {}\n\n", i + 1, error.error_type));
-                md.push_str(&format!("**Message**: {}\n\n", error.message));
+                md.push_str(&format!(
+                    "### {}. {}\n\n",
+                    i + 1,
+                    markdown_text(&error.error_type)
+                ));
+                md.push_str(&format!(
+                    "**Message**: {}\n\n",
+                    markdown_text(&error.message)
+                ));
                 md.push_str(&format!("**Occurrences**: {}\n\n", error.occurrence_count));
                 md.push_str("**Affected files**:\n\n");
                 for file in &error.affected_files {
-                    md.push_str(&format!("- {}\n", file));
+                    md.push_str(&format!("- {}\n", markdown_text(file)));
                 }
                 md.push('\n');
             }
@@ -223,18 +277,43 @@ impl ReportGenerator {
 
         // 标题
         html.push_str("<h1>Batch Conversion Report</h1>\n");
-        html.push_str(&format!("<p><strong>Generated at:</strong> {}</p>\n", report.timestamp));
+        html.push_str(&format!(
+            "<p><strong>Generated at:</strong> {}</p>\n",
+            html_text(&report.timestamp)
+        ));
 
         // 汇总信息
         html.push_str("<h2>Summary</h2>\n");
         html.push_str("<table>\n");
         html.push_str("<tr><th>Metric</th><th>Value</th></tr>\n");
-        html.push_str(&format!("<tr><td>Total files</td><td>{}</td></tr>\n", report.summary.total_files));
-        html.push_str(&format!("<tr><td>Successful conversions</td><td class=\"success\">{}</td></tr>\n", report.summary.successful_conversions));
-        html.push_str(&format!("<tr><td>Failed conversions</td><td class=\"failed\">{}</td></tr>\n", report.summary.failed_conversions));
-        html.push_str(&format!("<tr><td>Total duration</td><td>{:.2} seconds</td></tr>\n", report.summary.total_duration_secs));
-        html.push_str(&format!("<tr><td>Average duration</td><td>{:.2} seconds</td></tr>\n", report.summary.average_duration_secs));
-        html.push_str(&format!("<tr><td>Success rate</td><td>{:.1}%</td></tr>\n", report.summary.success_rate * 100.0));
+        html.push_str(&format!(
+            "<tr><td>Total files</td><td>{}</td></tr>\n",
+            report.summary.total_files
+        ));
+        html.push_str(&format!(
+            "<tr><td>Successful conversions</td><td class=\"success\">{}</td></tr>\n",
+            report.summary.successful_conversions
+        ));
+        html.push_str(&format!(
+            "<tr><td>Failed conversions</td><td class=\"failed\">{}</td></tr>\n",
+            report.summary.failed_conversions
+        ));
+        html.push_str(&format!(
+            "<tr><td>Skipped conversions</td><td class=\"skipped\">{}</td></tr>\n",
+            report.summary.skipped_conversions
+        ));
+        html.push_str(&format!(
+            "<tr><td>Total duration</td><td>{:.2} seconds</td></tr>\n",
+            report.summary.total_duration_secs
+        ));
+        html.push_str(&format!(
+            "<tr><td>Average duration</td><td>{:.2} seconds</td></tr>\n",
+            report.summary.average_duration_secs
+        ));
+        html.push_str(&format!(
+            "<tr><td>Success rate</td><td>{:.1}%</td></tr>\n",
+            report.summary.success_rate * 100.0
+        ));
         html.push_str("</table>\n");
 
         // 文件详情
@@ -248,13 +327,16 @@ impl ReportGenerator {
                 ConversionStatus::Skipped => "skipped",
             };
             let status_text = format!("{:?}", file.status).to_lowercase();
-            let chapter_text = file.chapter_count.map(|c| c.to_string()).unwrap_or_default();
-            let output_text = file.output_file.as_ref().unwrap_or(&String::new()).clone();
+            let chapter_text = file
+                .chapter_count
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            let output_text = file.output_file.as_deref().unwrap_or("");
 
             html.push_str(&format!("<tr><td>{}</td><td>{}</td><td>{}</td><td class=\"{}\">{}</td><td>{:.2}s</td><td>{}</td><td>{}</td></tr>\n",
                 i + 1,
-                file.input_file,
-                output_text,
+                html_text(&file.input_file),
+                html_text(output_text),
                 status_class,
                 status_text,
                 file.duration_secs,
@@ -268,13 +350,23 @@ impl ReportGenerator {
         if !report.errors.is_empty() {
             html.push_str("<h2>Error Details</h2>\n");
             for (i, error) in report.errors.iter().enumerate() {
-                html.push_str(&format!("<h3>{}. {}</h3>\n", i + 1, error.error_type));
-                html.push_str(&format!("<p><strong>Message:</strong> {}</p>\n", error.message));
-                html.push_str(&format!("<p><strong>Occurrences:</strong> {}</p>\n", error.occurrence_count));
+                html.push_str(&format!(
+                    "<h3>{}. {}</h3>\n",
+                    i + 1,
+                    html_text(&error.error_type)
+                ));
+                html.push_str(&format!(
+                    "<p><strong>Message:</strong> {}</p>\n",
+                    html_text(&error.message)
+                ));
+                html.push_str(&format!(
+                    "<p><strong>Occurrences:</strong> {}</p>\n",
+                    error.occurrence_count
+                ));
                 html.push_str("<p><strong>Affected files:</strong></p>\n");
                 html.push_str("<ul>\n");
                 for file in &error.affected_files {
-                    html.push_str(&format!("<li>{}</li>\n", file));
+                    html.push_str(&format!("<li>{}</li>\n", html_text(file)));
                 }
                 html.push_str("</ul>\n");
             }
@@ -288,8 +380,11 @@ impl ReportGenerator {
     }
 
     /// 保存报告到文件
-    pub fn save_to_file(&self, report: &BatchReport, path: &PathBuf) -> Result<()> {
+    pub fn save_to_file(&self, report: &BatchReport, path: &Path) -> Result<()> {
         let content = self.generate(report)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let mut file = fs::File::create(path)?;
         file.write_all(content.as_bytes())?;
         Ok(())
@@ -313,6 +408,7 @@ impl Default for ConversionSummary {
             total_files: 0,
             successful_conversions: 0,
             failed_conversions: 0,
+            skipped_conversions: 0,
             total_duration_secs: 0.0,
             average_duration_secs: 0.0,
             success_rate: 0.0,
@@ -326,9 +422,18 @@ mod tests {
 
     #[test]
     fn test_report_format_from_str() {
-        assert!(matches!(ReportFormat::parse("json"), Ok(ReportFormat::Json)));
-        assert!(matches!(ReportFormat::parse("markdown"), Ok(ReportFormat::Markdown)));
-        assert!(matches!(ReportFormat::parse("html"), Ok(ReportFormat::Html)));
+        assert!(matches!(
+            ReportFormat::parse("json"),
+            Ok(ReportFormat::Json)
+        ));
+        assert!(matches!(
+            ReportFormat::parse("markdown"),
+            Ok(ReportFormat::Markdown)
+        ));
+        assert!(matches!(
+            ReportFormat::parse("html"),
+            Ok(ReportFormat::Html)
+        ));
         assert!(ReportFormat::parse("invalid").is_err());
     }
 

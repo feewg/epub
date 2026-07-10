@@ -1,34 +1,29 @@
-//! 批量转换增强模块
-//!
-//! 提供更强大的批量转换功能
+//! 增强批量转换
 
-use super::report::{BatchReport, ConversionSummary, ConversionStatus, ErrorDetail, FileConversionResult, ReportGenerator, ReportFormat};
+use super::report::{
+    BatchReport, ConversionStatus, ConversionSummary, ErrorDetail, FileConversionResult,
+    ReportFormat, ReportGenerator,
+};
 use crate::converter::EpubConverter3;
-use crate::error::Result;
+use crate::error::{KafError, Result};
 use crate::model::Book;
 use crate::parser::Parser;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Semaphore;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
-/// 批量转换增强配置
+/// 批量转换配置
 #[derive(Debug, Clone)]
 pub struct BatchConfig {
-    /// 输出目录
     pub output_dir: Option<PathBuf>,
-    /// 遇到错误是否继续
     pub continue_on_error: bool,
     /// 最大错误数量（0 表示无限制）
-    #[allow(dead_code)]
     pub max_errors: usize,
-    /// 是否仅解析不生成
     pub dry_run: bool,
-    /// 是否显示章节信息
     pub show_chapters: bool,
-    /// 并发数
     pub concurrency: usize,
 }
 
@@ -45,375 +40,483 @@ impl Default for BatchConfig {
     }
 }
 
-/// 批量转换增强器
+/// 单个批量输入及其配置加载结果。
+#[derive(Debug)]
+pub enum BatchInput {
+    Book(Box<Book>),
+    Failed { input: PathBuf, error: String },
+}
+
+impl BatchInput {
+    pub fn book(book: Book) -> Self {
+        Self::Book(Box::new(book))
+    }
+
+    pub fn failed(input: PathBuf, error: impl Into<String>) -> Self {
+        Self::Failed {
+            input,
+            error: error.into(),
+        }
+    }
+}
+
+enum PlannedJob {
+    Ready {
+        book: Box<Book>,
+        output_path: PathBuf,
+    },
+    Failed {
+        input: PathBuf,
+        error: String,
+        error_type: &'static str,
+    },
+}
+
+impl PlannedJob {
+    fn input(&self) -> &Path {
+        match self {
+            Self::Ready { book, .. } => &book.filename,
+            Self::Failed { input, .. } => input,
+        }
+    }
+}
+
 pub struct EnhancedBatchConverter {
     config: BatchConfig,
-    /// 当前错误计数
-    error_count: Arc<std::sync::atomic::AtomicUsize>,
-    /// 是否应该停止
-    should_stop: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl EnhancedBatchConverter {
-    /// 创建新的批量转换增强器
     pub fn new(config: BatchConfig) -> Self {
-        Self {
-            config,
-            error_count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
-            should_stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        }
+        Self { config }
     }
 
-    /// 执行批量转换
+    /// 执行批量转换。
     pub async fn convert(&self, books: Vec<Book>) -> Result<BatchReport> {
-        let start = Instant::now();
-        let semaphore = Arc::new(Semaphore::new(self.config.concurrency));
-        let mut tasks = Vec::new();
+        let inputs = books.into_iter().map(BatchInput::book).collect();
+        self.convert_inputs(inputs).await
+    }
 
-        let report = Arc::new(std::sync::Mutex::new(BatchReport::default()));
+    /// 转换包含逐文件配置错误的批量输入。
+    pub async fn convert_inputs(&self, inputs: Vec<BatchInput>) -> Result<BatchReport> {
+        if self.config.concurrency == 0 {
+            return Err(KafError::ParseError("并发数必须大于 0".to_string()));
+        }
+        if !self.config.dry_run {
+            if let Some(output_dir) = &self.config.output_dir {
+                fs::create_dir_all(output_dir)?;
+                if !output_dir.is_dir() {
+                    return Err(KafError::ParseError(format!(
+                        "输出路径不是目录: {}",
+                        output_dir.display()
+                    )));
+                }
+            }
+        }
 
-        for book in books {
-            // 检查是否应该停止
-            if self.should_stop.load(std::sync::atomic::Ordering::Relaxed) {
-                warn!("达到最大错误数量，停止批量转换");
-                break;
+        let started = Instant::now();
+        let jobs = Self::plan_jobs(inputs, &self.config);
+        let mut report = BatchReport::default();
+        let mut error_types = HashMap::new();
+        let mut error_count = 0usize;
+        let mut next_job = 0usize;
+        let mut stopped = false;
+
+        while next_job < jobs.len() && !stopped {
+            if let PlannedJob::Failed {
+                input,
+                error,
+                error_type,
+            } = &jobs[next_job]
+            {
+                error!(path = %input.display(), error = %error, "批量预处理失败");
+                error_types.insert(input.display().to_string(), *error_type);
+                report.files.push(Self::failed_result(input, error.clone()));
+                error_count += 1;
+                next_job += 1;
+                stopped = !self.config.continue_on_error
+                    || (self.config.max_errors > 0 && error_count >= self.config.max_errors);
+                continue;
             }
 
-            // 获取信号量
-            let permit = semaphore.clone().acquire_owned().await.map_err(|e| {
-                crate::error::KafError::Unknown(format!("获取信号量失败: {}", e))
-            })?;
+            let mut tasks = Vec::with_capacity(self.config.concurrency);
+            while next_job < jobs.len() && tasks.len() < self.config.concurrency {
+                let PlannedJob::Ready { book, output_path } = &jobs[next_job] else {
+                    break;
+                };
+                let book = book.clone();
+                let output_path = output_path.clone();
+                let config = self.config.clone();
+                let input = book.filename.clone();
+                let handle =
+                    tokio::spawn(
+                        async move { Self::process_book(&book, &config, &output_path).await },
+                    );
+                tasks.push((input, handle));
+                next_job += 1;
+            }
 
-            // 克隆需要的数据
-            let book_clone = book.clone();
-            let error_count_clone = self.error_count.clone();
-            let should_stop_clone = self.should_stop.clone();
-            let report_clone = report.clone();
-            let config_clone = self.config.clone();
+            let failures_before = error_count;
+            for (input, task) in tasks {
+                let result = match task.await {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(error)) => {
+                        error!(path = %input.display(), %error, "批量转换失败");
+                        Self::failed_result(&input, error.to_string())
+                    }
+                    Err(error) => {
+                        error!(path = %input.display(), %error, "批量任务异常退出");
+                        Self::failed_result(&input, format!("任务执行错误: {error}"))
+                    }
+                };
+                if result.status == ConversionStatus::Failed {
+                    error_count += 1;
+                }
+                report.files.push(result);
+            }
 
-            // 为错误处理预留的克隆（因为 process_book 会 move config/error_count/should_stop）
-            let max_errors = config_clone.max_errors;
-            let error_count_for_err = error_count_clone.clone();
-            let should_stop_for_err = should_stop_clone.clone();
+            let batch_failed = error_count > failures_before;
+            stopped = (batch_failed && !self.config.continue_on_error)
+                || (self.config.max_errors > 0 && error_count >= self.config.max_errors);
+        }
 
-            // 保留输入文件路径，以便任务 panic 时仍能在最终报告中记录失败
-            let input_file = book.filename.clone();
+        if stopped && next_job < jobs.len() {
+            warn!(
+                remaining = jobs.len() - next_job,
+                "达到停止条件，取消剩余文件"
+            );
+            for job in &jobs[next_job..] {
+                let input = job.input();
+                report.files.push(FileConversionResult {
+                    input_file: input.display().to_string(),
+                    output_file: None,
+                    status: ConversionStatus::Skipped,
+                    duration_secs: 0.0,
+                    chapter_count: None,
+                    file_size_bytes: fs::metadata(input)
+                        .map(|metadata| metadata.len())
+                        .unwrap_or(0),
+                    error_message: Some("达到批量停止条件，未执行转换".to_string()),
+                });
+            }
+        }
 
-            let task = tokio::spawn(async move {
-                // 使用 permit 确保完成后释放
-                let _permit = permit;
-                let file_start = Instant::now();
+        report.timestamp = chrono::Utc::now().to_rfc3339();
+        Self::update_summary(&mut report, started.elapsed().as_secs_f64(), &error_types);
+        Ok(report)
+    }
 
-                let input_file = book_clone.filename.clone();
-                let input_file_str = input_file.display().to_string();
-                let bookname = book_clone.bookname.clone().unwrap_or_else(|| "Unknown".to_string());
-
-                info!("开始处理: {}", bookname);
-
-                let result = Self::process_book(&book_clone, config_clone, error_count_clone, should_stop_clone).await;
-
-                let duration = file_start.elapsed().as_secs_f64();
-
-                // 更新报告
-                {
-                    let mut report = report_clone.lock().unwrap();
-                    match result {
-                        Ok(file_result) => {
-                            report.files.push(file_result);
-                            info!("处理完成: {} ({:.2}s)", bookname, duration);
+    fn plan_jobs(inputs: Vec<BatchInput>, config: &BatchConfig) -> Vec<PlannedJob> {
+        let mut reserved = HashSet::new();
+        inputs
+            .into_iter()
+            .map(|input| match input {
+                BatchInput::Failed { input, error } => PlannedJob::Failed {
+                    input,
+                    error,
+                    error_type: "ConfigurationError",
+                },
+                BatchInput::Book(book) => {
+                    if let Err(error) = crate::config::validate_config(&book) {
+                        PlannedJob::Failed {
+                            input: book.filename.clone(),
+                            error: error.to_string(),
+                            error_type: "ConfigurationError",
                         }
-                        Err(err) => {
-                            // 创建失败的结果
-                            let file_result = FileConversionResult {
-                                input_file: input_file_str.clone(),
-                                output_file: None,
-                                status: ConversionStatus::Failed,
-                                duration_secs: duration,
-                                chapter_count: None,
-                                file_size_bytes: 0,
-                                error_message: Some(err.to_string()),
-                            };
-                            report.files.push(file_result);
-                            error!("处理失败: {} - {}", bookname, err);
-
-                            // 递增错误计数并检查是否应停止
-                            let count = error_count_for_err.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                            if max_errors > 0 && count >= max_errors {
-                                should_stop_for_err.store(true, std::sync::atomic::Ordering::Relaxed);
-                                warn!("已达到最大错误数量 ({})，将停止后续任务", max_errors);
-                            }
+                    } else if config.dry_run {
+                        PlannedJob::Ready {
+                            book,
+                            output_path: PathBuf::new(),
+                        }
+                    } else {
+                        match Self::reserve_output_path(&book, config, &mut reserved) {
+                            Ok(output_path) => PlannedJob::Ready { book, output_path },
+                            Err(error) => PlannedJob::Failed {
+                                input: book.filename.clone(),
+                                error: error.to_string(),
+                                error_type: "ConversionError",
+                            },
                         }
                     }
                 }
-
-                Ok::<(), crate::error::KafError>(())
-            });
-
-            tasks.push((task, input_file));
-        }
-
-        // 等待所有任务完成
-        for (task, input_file) in tasks {
-            match task.await {
-                Ok(Ok(())) => {}
-                Ok(Err(inner)) => {
-                    // 任务返回内部错误时同样记录为失败（当前任务体内已处理，此处作为兜底）
-                    error!("任务返回内部错误: {}", inner);
-                    let file_result = FileConversionResult {
-                        input_file: input_file.display().to_string(),
-                        output_file: None,
-                        status: ConversionStatus::Failed,
-                        duration_secs: 0.0,
-                        chapter_count: None,
-                        file_size_bytes: 0,
-                        error_message: Some(format!("任务内部错误: {}", inner)),
-                    };
-                    report.lock().unwrap().files.push(file_result);
-                }
-                Err(e) => {
-                    error!("任务执行错误: {}", e);
-                    // 将任务级错误记录为失败结果，避免静默丢弃
-                    let file_result = FileConversionResult {
-                        input_file: input_file.display().to_string(),
-                        output_file: None,
-                        status: ConversionStatus::Failed,
-                        duration_secs: 0.0,
-                        chapter_count: None,
-                        file_size_bytes: 0,
-                        error_message: Some(format!("任务执行错误: {}", e)),
-                    };
-                    report.lock().unwrap().files.push(file_result);
-                }
-            }
-        }
-
-        // 完成报告
-        let final_duration = start.elapsed().as_secs_f64();
-        let mut final_report = report.lock().unwrap().clone();
-
-        // 更新报告时间戳为实际完成时间
-        final_report.timestamp = chrono::Utc::now().to_rfc3339();
-
-        // 更新汇总信息
-        Self::update_summary(&mut final_report, final_duration);
-
-        Ok(final_report)
+            })
+            .collect()
     }
 
-    /// 处理单个书籍
+    fn reserve_output_path(
+        book: &Book,
+        config: &BatchConfig,
+        reserved: &mut HashSet<String>,
+    ) -> Result<PathBuf> {
+        let output_dir = config.output_dir.clone().unwrap_or_else(|| {
+            book.filename
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf()
+        });
+        let requested = book
+            .output_name
+            .as_deref()
+            .or(book.bookname.as_deref())
+            .unwrap_or("output");
+        let basename = Self::sanitize_output_name(requested);
+
+        for suffix in 0..=10_000usize {
+            let filename = if suffix == 0 {
+                format!("{basename}.epub")
+            } else {
+                format!("{basename} ({suffix}).epub")
+            };
+            let candidate = output_dir.join(filename);
+            let key = Self::path_key(&candidate);
+            if !candidate.exists() && reserved.insert(key) {
+                return Ok(candidate);
+            }
+        }
+        Err(KafError::ParseError(format!(
+            "无法为 {} 分配唯一输出文件名",
+            book.filename.display()
+        )))
+    }
+
+    fn sanitize_output_name(value: &str) -> String {
+        let sanitized = value
+            .trim()
+            .chars()
+            .map(|character| {
+                if character.is_control()
+                    || matches!(
+                        character,
+                        '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                    )
+                {
+                    '_'
+                } else {
+                    character
+                }
+            })
+            .collect::<String>();
+        let sanitized = sanitized.trim_matches([' ', '.']);
+        if sanitized.is_empty() || matches!(sanitized, "." | "..") {
+            "output".to_string()
+        } else {
+            sanitized.to_string()
+        }
+    }
+
+    fn path_key(path: &Path) -> String {
+        let value = path.to_string_lossy().into_owned();
+        if cfg!(windows) {
+            value.to_lowercase()
+        } else {
+            value
+        }
+    }
+
     async fn process_book(
         book: &Book,
-        config: BatchConfig,
-        #[allow(unused_variables)] error_count: Arc<std::sync::atomic::AtomicUsize>,
-        #[allow(unused_variables)] should_stop: Arc<std::sync::atomic::AtomicBool>,
+        config: &BatchConfig,
+        output_path: &Path,
     ) -> Result<FileConversionResult> {
-        let start = Instant::now();
-        let input_file = &book.filename;
-        let bookname = book.bookname.clone().unwrap_or_else(|| "Unknown".to_string());
-
-        // 确定输出路径
-        let output_path = Self::determine_output_path(input_file, &config, &bookname)?;
-
-        // 检查文件大小
-        let file_size = fs::metadata(input_file)?.len();
-
-        // 检查是否是空文件，如果是空文件，跳过处理
+        let started = Instant::now();
+        crate::config::validate_config(book)?;
+        let file_size = fs::metadata(&book.filename)?.len();
         if file_size == 0 {
             return Ok(FileConversionResult {
-                input_file: input_file.display().to_string(),
-                output_file: if !config.dry_run {
-                    Some(output_path.display().to_string())
-                } else {
-                    None
-                },
+                input_file: book.filename.display().to_string(),
+                output_file: None,
                 status: ConversionStatus::Skipped,
-                duration_secs: start.elapsed().as_secs_f64(),
+                duration_secs: started.elapsed().as_secs_f64(),
                 chapter_count: Some(0),
                 file_size_bytes: 0,
                 error_message: Some("文件为空，跳过处理".to_string()),
             });
         }
 
-        // 如果是 dry-run 模式，只解析不生成
-        if config.dry_run {
-            return Self::dry_run_process(book, config, &output_path, file_size, start).await;
-        }
-
-        // 正常处理：解析 + 生成
-        let chapter_count = Self::normal_process(book, &output_path).await?;
-
-        Ok(FileConversionResult {
-            input_file: input_file.display().to_string(),
-            output_file: Some(output_path.display().to_string()),
-            status: ConversionStatus::Success,
-            duration_secs: start.elapsed().as_secs_f64(),
-            chapter_count: Some(chapter_count),
-            file_size_bytes: file_size,
-            error_message: None,
-        })
-    }
-
-    /// 确定输出路径
-    fn determine_output_path(
-        input_file: &Path,
-        config: &BatchConfig,
-        bookname: &str,
-    ) -> Result<PathBuf> {
-        let output_dir = config.output_dir.as_ref()
-            .cloned()
-            .unwrap_or_else(|| input_file.parent().unwrap_or(Path::new(".")).to_path_buf());
-
-        let filename = format!("{}.epub", bookname);
-        let output_path = output_dir.join(&filename);
-
-        // 检查文件名冲突
-        if output_path.exists() {
-            // 添加后缀
-            for i in 1..=1000 {
-                let new_filename = format!("{} ({}).epub", bookname, i);
-                let new_path = output_dir.join(&new_filename);
-                if !new_path.exists() {
-                    return Ok(new_path);
-                }
-            }
-            return Err(crate::error::KafError::ParseError(
-                format!("无法解决文件名冲突: {}", filename)
-            ));
-        }
-
-        Ok(output_path)
-    }
-
-    /// Dry-run 处理
-    async fn dry_run_process(
-        book: &Book,
-        config: BatchConfig,
-        output_path: &Path,
-        file_size: u64,
-        start: Instant,
-    ) -> Result<FileConversionResult> {
-        info!("Dry-run 模式: 仅解析不生成");
-
-        // 解析文件
-        let mut parser = Parser::new(book.clone());
-        let sections = parser.parse()?;
-
-        // 显示章节信息（如果要求）
+        let sections = Self::parse_book(book.clone()).await?;
         if config.show_chapters {
-            println!("\n=== {} 章节识别结果 ===", book.bookname.as_ref().unwrap_or(&"Unknown".to_string()));
-            for (i, section) in sections.iter().take(20).enumerate() {
-                println!("{}. {}", i + 1, section.title);
-            }
-            if sections.len() > 20 {
-                println!("... 还有 {} 个章节", sections.len() - 20);
-            }
-            println!("总计: {} 个章节\n", sections.len());
+            Self::print_chapters(book, &sections);
         }
+
+        if config.dry_run {
+            return Ok(FileConversionResult {
+                input_file: book.filename.display().to_string(),
+                output_file: None,
+                status: ConversionStatus::Skipped,
+                duration_secs: started.elapsed().as_secs_f64(),
+                chapter_count: Some(sections.len()),
+                file_size_bytes: file_size,
+                error_message: None,
+            });
+        }
+
+        let converter = EpubConverter3::new(book.clone());
+        let epub_data = converter.generate(&sections).await?;
+        Self::write_new_file(output_path.to_path_buf(), epub_data).await?;
+        info!(input = %book.filename.display(), output = %output_path.display(), "转换完成");
 
         Ok(FileConversionResult {
             input_file: book.filename.display().to_string(),
             output_file: Some(output_path.display().to_string()),
-            status: ConversionStatus::Skipped,
-            duration_secs: start.elapsed().as_secs_f64(),
+            status: ConversionStatus::Success,
+            duration_secs: started.elapsed().as_secs_f64(),
             chapter_count: Some(sections.len()),
             file_size_bytes: file_size,
             error_message: None,
         })
     }
 
-    /// 正常处理（解析 + 生成）
-    async fn normal_process(book: &Book, output_path: &Path) -> Result<usize> {
-        // 解析文件
-        let book_clone = book.clone();
-        let sections = tokio::task::spawn_blocking(move || {
-            let mut parser = Parser::new(book_clone);
+    async fn parse_book(book: Book) -> Result<Vec<crate::model::Section>> {
+        tokio::task::spawn_blocking(move || {
+            let mut parser = Parser::new(book);
             parser.parse()
-        }).await.map_err(|e| {
-            crate::error::KafError::Unknown(format!("Task join error: {}", e))
-        })??;
-
-        // 生成 EPUB
-        let book_clone = book.clone();
-        let converter = EpubConverter3::new(book_clone);
-        let epub_data = converter.generate(&sections).await?;
-
-        // 写入文件
-        tokio::fs::write(output_path, epub_data).await?;
-
-        Ok(sections.len())
+        })
+        .await
+        .map_err(|error| KafError::Unknown(format!("解析任务异常: {error}")))?
     }
 
-    /// 更新汇总信息
-    fn update_summary(report: &mut BatchReport, total_duration: f64) {
+    async fn write_new_file(path: PathBuf, data: Vec<u8>) -> Result<()> {
+        tokio::task::spawn_blocking(move || {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)?;
+            if let Err(error) = file.write_all(&data).and_then(|_| file.sync_all()) {
+                drop(file);
+                let _ = fs::remove_file(&path);
+                return Err(error);
+            }
+            Ok::<(), std::io::Error>(())
+        })
+        .await
+        .map_err(|error| KafError::Unknown(format!("写入任务异常: {error}")))??;
+        Ok(())
+    }
+
+    fn print_chapters(book: &Book, sections: &[crate::model::Section]) {
+        let title = book.bookname.as_deref().unwrap_or("Unknown");
+        println!("\n=== {title} 章节识别结果 ===");
+        for (index, section) in sections.iter().take(20).enumerate() {
+            println!("{}. {}", index + 1, section.title);
+        }
+        if sections.len() > 20 {
+            println!("... 还有 {} 个章节", sections.len() - 20);
+        }
+        println!("总计: {} 个章节\n", sections.len());
+    }
+
+    fn failed_result(input: &Path, message: String) -> FileConversionResult {
+        FileConversionResult {
+            input_file: input.display().to_string(),
+            output_file: None,
+            status: ConversionStatus::Failed,
+            duration_secs: 0.0,
+            chapter_count: None,
+            file_size_bytes: fs::metadata(input)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0),
+            error_message: Some(message),
+        }
+    }
+
+    fn update_summary(
+        report: &mut BatchReport,
+        total_duration: f64,
+        error_types: &HashMap<String, &'static str>,
+    ) {
         let total_files = report.files.len();
-        let successful = report.files.iter()
-            .filter(|f| f.status == ConversionStatus::Success)
+        let successful = report
+            .files
+            .iter()
+            .filter(|file| file.status == ConversionStatus::Success)
             .count();
-        let failed = report.files.iter()
-            .filter(|f| f.status == ConversionStatus::Failed)
+        let failed = report
+            .files
+            .iter()
+            .filter(|file| file.status == ConversionStatus::Failed)
             .count();
-        let _skipped = report.files.iter()
-            .filter(|f| f.status == ConversionStatus::Skipped)
+        let skipped = report
+            .files
+            .iter()
+            .filter(|file| file.status == ConversionStatus::Skipped)
             .count();
-
-        let average_duration = if total_files > 0 {
-            total_duration / total_files as f64
-        } else {
+        let average_duration = if total_files == 0 {
             0.0
+        } else {
+            report
+                .files
+                .iter()
+                .map(|file| file.duration_secs)
+                .sum::<f64>()
+                / total_files as f64
         };
-
-        let success_rate = if total_files > 0 {
-            successful as f64 / total_files as f64
+        let attempted = successful + failed;
+        let success_rate = if attempted == 0 {
+            if skipped > 0 {
+                1.0
+            } else {
+                0.0
+            }
         } else {
-            0.0
+            successful as f64 / attempted as f64
         };
 
         report.summary = ConversionSummary {
             total_files,
             successful_conversions: successful,
             failed_conversions: failed,
+            skipped_conversions: skipped,
             total_duration_secs: total_duration,
             average_duration_secs: average_duration,
             success_rate,
         };
 
-        // 错误统计
-        let mut error_map = std::collections::HashMap::new();
-        for file in &report.files {
-            if let Some(ref error) = file.error_message {
-                error_map.entry(error.clone())
-                    .and_modify(|e: &mut ErrorDetail| {
-                        e.affected_files.push(file.input_file.clone());
-                        e.occurrence_count += 1;
+        let mut errors: HashMap<(String, String), ErrorDetail> = HashMap::new();
+        for file in report
+            .files
+            .iter()
+            .filter(|file| file.status == ConversionStatus::Failed)
+        {
+            if let Some(message) = &file.error_message {
+                let error_type = error_types
+                    .get(&file.input_file)
+                    .copied()
+                    .unwrap_or("ConversionError")
+                    .to_string();
+                errors
+                    .entry((error_type.clone(), message.clone()))
+                    .and_modify(|detail| {
+                        detail.affected_files.push(file.input_file.clone());
+                        detail.occurrence_count += 1;
                     })
                     .or_insert_with(|| ErrorDetail {
-                        error_type: "ConversionError".to_string(),
-                        message: error.clone(),
+                        error_type,
+                        message: message.clone(),
                         affected_files: vec![file.input_file.clone()],
                         occurrence_count: 1,
                     });
             }
         }
-
-        report.errors = error_map.into_values().collect();
+        report.errors = errors.into_values().collect();
+        report
+            .errors
+            .sort_by(|left, right| left.message.cmp(&right.message));
     }
 
-    /// 生成并保存报告
     pub fn generate_and_save_report(
         &self,
         report: &BatchReport,
         format: ReportFormat,
         output_dir: &Path,
     ) -> Result<PathBuf> {
-        let generator = ReportGenerator::new(format);
-        let filename = format!("batch_report_{}.{}", 
+        fs::create_dir_all(output_dir)?;
+        let filename = format!(
+            "batch_report_{}.{}",
             chrono::Utc::now().format("%Y%m%d_%H%M%S"),
             format.extension()
         );
-        let report_path = output_dir.join(filename);
-
-        generator.save_to_file(report, &report_path)?;
-        Ok(report_path)
+        let path = output_dir.join(filename);
+        ReportGenerator::new(format).save_to_file(report, &path)?;
+        Ok(path)
     }
 }
 
@@ -428,25 +531,5 @@ impl Default for FileConversionResult {
             file_size_bytes: 0,
             error_message: None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_batch_config_default() {
-        let config = BatchConfig::default();
-        assert_eq!(config.concurrency, 4);
-        assert!(!config.continue_on_error);
-        assert_eq!(config.max_errors, 0);
-    }
-
-    #[test]
-    fn test_enhanced_batch_converter_creation() {
-        let config = BatchConfig::default();
-        let converter = EnhancedBatchConverter::new(config);
-        assert_eq!(converter.config.concurrency, 4);
     }
 }

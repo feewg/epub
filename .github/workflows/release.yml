@@ -15,10 +15,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust 质量工具
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: 检查格式
+        run: cargo fmt --all -- --check
+
+      - name: 运行 Clippy
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: 运行测试
+        run: cargo test --all --locked
+
   # 构建 Linux x86_64
   build-linux-x86_64:
+    needs: quality
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -35,11 +58,6 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: 安装依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev
       
       - name: 构建 Release
         run: cargo build --release --target x86_64-unknown-linux-gnu
@@ -58,8 +76,8 @@ jobs:
 
   # 构建 macOS x86_64
   build-macos-x86_64:
+    needs: quality
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -94,8 +112,8 @@ jobs:
 
   # 构建 macOS aarch64 (Apple Silicon)
   build-macos-aarch64:
+    needs: quality
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -130,8 +148,8 @@ jobs:
 
   # 构建 Windows x86_64
   build-windows-x86_64:
+    needs: quality
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -166,8 +184,8 @@ jobs:
 
   # 构建 Windows aarch64
   build-windows-aarch64:
+    needs: quality
     runs-on: windows-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       
@@ -208,7 +226,6 @@ jobs:
       - build-macos-aarch64
       - build-windows-x86_64
       - build-windows-aarch64
-    if: always() && (needs.build-linux-x86_64.result == 'success' || needs.build-macos-x86_64.result == 'success' || needs.build-macos-aarch64.result == 'success' || needs.build-windows-x86_64.result == 'success' || needs.build-windows-aarch64.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -255,7 +272,7 @@ jobs:
           echo "解压 zip 文件并将 kaf-cli.exe 添加到 PATH" >> CHANGELOG.md
       
       - name: 创建 Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.changelog.outputs.version }}
           name: Release ${{ steps.changelog.outputs.version }}

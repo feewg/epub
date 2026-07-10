@@ -9,14 +9,11 @@ use std::path::Path;
 use tracing::debug;
 
 /// 预编译正则：有序列表项
-static RE_ORDERED_LIST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^\d+\.\s").unwrap()
-});
+static RE_ORDERED_LIST: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\s").unwrap());
 
 /// 预编译正则：中文小说章节标题
-static RE_CHINESE_CHAPTER: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^第[一二三四五六七八九十零〇百千\d]+[章回节卷]").unwrap()
-});
+static RE_CHINESE_CHAPTER: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^第[一二三四五六七八九十零〇百千\d]+[章回节卷]").unwrap());
 
 /// 格式检测器
 pub struct FormatDetector;
@@ -58,7 +55,10 @@ impl FormatDetector {
             }
 
             // Markdown 指标
-            if trimmed.starts_with("# ") || trimmed.starts_with("## ") || trimmed.starts_with("### ") {
+            if trimmed.starts_with("# ")
+                || trimmed.starts_with("## ")
+                || trimmed.starts_with("### ")
+            {
                 markdown_score += 3;
             }
             if trimmed.starts_with("> ") {
@@ -89,7 +89,10 @@ impl FormatDetector {
             }
         }
 
-        debug!("格式检测得分 - Markdown: {}, TXT: {}", markdown_score, txt_score);
+        debug!(
+            "格式检测得分 - Markdown: {}, TXT: {}",
+            markdown_score, txt_score
+        );
 
         if markdown_score > txt_score && markdown_score >= 3 {
             InputFormat::Markdown
@@ -133,31 +136,46 @@ mod tests {
     #[test]
     fn test_detect_by_extension_md() {
         let path = PathBuf::from("test.md");
-        assert_eq!(FormatDetector::detect_by_extension(&path), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&path),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
     fn test_detect_by_extension_markdown() {
         let path = PathBuf::from("test.markdown");
-        assert_eq!(FormatDetector::detect_by_extension(&path), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&path),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
     fn test_detect_by_extension_mkd() {
         let path = PathBuf::from("test.mkd");
-        assert_eq!(FormatDetector::detect_by_extension(&path), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&path),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
     fn test_detect_by_extension_unknown() {
         let path = PathBuf::from("test.unknown");
-        assert_eq!(FormatDetector::detect_by_extension(&path), InputFormat::Auto);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&path),
+            InputFormat::Auto
+        );
     }
 
     #[test]
     fn test_detect_by_extension_no_ext() {
         let path = PathBuf::from("test");
-        assert_eq!(FormatDetector::detect_by_extension(&path), InputFormat::Auto);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&path),
+            InputFormat::Auto
+        );
     }
 
     #[test]
@@ -168,7 +186,10 @@ mod tests {
 
 内容段落
 "#;
-        assert_eq!(FormatDetector::detect_by_content(content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_content(content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
@@ -193,7 +214,10 @@ mod tests {
 - 列表项2
 "#;
         // # 标题: +3, - 列表项: +2 = 5 >= 3 且 > txt_score
-        assert_eq!(FormatDetector::detect_by_content(content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_content(content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
@@ -226,7 +250,10 @@ mod tests {
 更多文本
 "#;
         // 代码块 +3 >= 3
-        assert_eq!(FormatDetector::detect_by_content(content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_content(content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
@@ -246,7 +273,10 @@ mod tests {
         let path = PathBuf::from("book.md");
         let content = "纯文本内容";
         // 有扩展名优先用扩展名
-        assert_eq!(FormatDetector::detect(&path, content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect(&path, content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
@@ -257,7 +287,10 @@ mod tests {
 - 列表项
 "#;
         // 无扩展名，通过内容检测
-        assert_eq!(FormatDetector::detect(&path, content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect(&path, content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
@@ -293,12 +326,21 @@ mod tests {
 * 项目三
 "#;
         // # +3, * list +3 = 6
-        assert_eq!(FormatDetector::detect_by_content(content), InputFormat::Markdown);
+        assert_eq!(
+            FormatDetector::detect_by_content(content),
+            InputFormat::Markdown
+        );
     }
 
     #[test]
     fn test_detect_extension_case_insensitive() {
-        assert_eq!(FormatDetector::detect_by_extension(&PathBuf::from("TEST.MD")), InputFormat::Markdown);
-        assert_eq!(FormatDetector::detect_by_extension(&PathBuf::from("test.TXT")), InputFormat::Txt);
+        assert_eq!(
+            FormatDetector::detect_by_extension(&PathBuf::from("TEST.MD")),
+            InputFormat::Markdown
+        );
+        assert_eq!(
+            FormatDetector::detect_by_extension(&PathBuf::from("test.TXT")),
+            InputFormat::Txt
+        );
     }
 }

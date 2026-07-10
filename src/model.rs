@@ -124,9 +124,7 @@ pub struct Book {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CoverSource {
     /// 本地图片
-    Local {
-        path: PathBuf,
-    },
+    Local { path: PathBuf },
     /// 内存中的图片数据（用于程序化生成封面等场景）
     Data {
         /// 图片二进制数据
@@ -234,7 +232,6 @@ impl ThemePreset {
             ThemePreset::Traditional => "传统文学",
         }
     }
-
 }
 
 /// 书籍语言
@@ -304,7 +301,8 @@ pub const DEFAULT_CHAPTER_MATCH: &str = r"^第[0-9一二三四五六七八九十
 pub const DEFAULT_VOLUME_MATCH: &str = r"^第[0-9一二三四五六七八九十零〇百千万两 ]+[卷部]";
 
 /// 默认排除规则
-pub const DEFAULT_EXCLUSION: &str = r"^第[0-9一二三四五六七八九十零〇百千两 ]+(部门|部队|部属|部分|部件|部落|部.*：$)";
+pub const DEFAULT_EXCLUSION: &str =
+    r"^第[0-9一二三四五六七八九十零〇百千两 ]+(部门|部队|部属|部分|部件|部落|部.*：$)";
 
 // 默认值函数
 fn default_author() -> String {

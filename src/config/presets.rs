@@ -48,11 +48,26 @@ impl ConfigPreset {
 pub fn generate_config_examples() -> HashMap<String, String> {
     let mut examples = HashMap::new();
 
-    examples.insert(ConfigPreset::Basic.name().to_string(), generate_basic_config());
-    examples.insert(ConfigPreset::WebNovel.name().to_string(), generate_webnovel_config());
-    examples.insert(ConfigPreset::Full.name().to_string(), generate_full_config());
-    examples.insert(ConfigPreset::Minimal.name().to_string(), generate_minimal_config());
-    examples.insert(ConfigPreset::Publication.name().to_string(), generate_publication_config());
+    examples.insert(
+        ConfigPreset::Basic.name().to_string(),
+        generate_basic_config(),
+    );
+    examples.insert(
+        ConfigPreset::WebNovel.name().to_string(),
+        generate_webnovel_config(),
+    );
+    examples.insert(
+        ConfigPreset::Full.name().to_string(),
+        generate_full_config(),
+    );
+    examples.insert(
+        ConfigPreset::Minimal.name().to_string(),
+        generate_minimal_config(),
+    );
+    examples.insert(
+        ConfigPreset::Publication.name().to_string(),
+        generate_publication_config(),
+    );
 
     examples
 }
@@ -84,7 +99,8 @@ align: \"center\"\n\
 lang: \"zh\"\n\
 \n\
 # 输出格式\n\
-format: \"all\"\n".to_string()
+format: \"all\"\n"
+        .to_string()
 }
 
 /// 生成网络小说配置
@@ -136,7 +152,8 @@ css_variables:\n\
   primary-color: \"#2c3e50\"\n\
   background-color: \"#ecf0f1\"\n\
   text-color: \"#34495e\"\n\
-  link-color: \"#3498db\"\n".to_string()
+  link-color: \"#3498db\"\n"
+        .to_string()
 }
 
 /// 生成完整配置
@@ -228,7 +245,8 @@ separate_chapter_number: false\n\
 #   position: \"center\"           # 图片位置 (left, center, right)\n\
 #   height: \"100px\"              # 图片高度\n\
 #   width: \"auto\"                # 图片宽度\n\
-#   mode: \"single\"               # 匹配模式 (single, folder)\n".to_string()
+#   mode: \"single\"               # 匹配模式 (single, folder)\n"
+        .to_string()
 }
 
 /// 生成简约配置
@@ -243,7 +261,8 @@ bookname: \"简约示例\"\n\
 author: \"作者名\"\n\
 \n\
 # 输出格式\n\
-format: \"epub\"\n".to_string()
+format: \"epub\"\n"
+        .to_string()
 }
 
 /// 生成出版物配置
@@ -292,7 +311,8 @@ css_variables:\n\
 add_tips: false\n\
 \n\
 # 出版物通常不分离章节序号\n\
-separate_chapter_number: false\n".to_string()
+separate_chapter_number: false\n"
+        .to_string()
 }
 
 #[cfg(test)]

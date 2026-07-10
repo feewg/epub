@@ -2,8 +2,8 @@
 //!
 //! 提供主题系统和 CSS 生成功能
 
-pub mod theme;
 pub mod css_generator;
+pub mod theme;
 
-pub use theme::Theme;
 pub use css_generator::CssGenerator;
+pub use theme::Theme;

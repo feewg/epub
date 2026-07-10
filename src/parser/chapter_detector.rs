@@ -1,6 +1,6 @@
 //! 章节检测器
 
-use super::scorer::{ChapterScore, ScoringFactors, ScoreCalculator};
+use super::scorer::{ChapterScore, ScoreCalculator, ScoringFactors};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -11,8 +11,10 @@ static VOLUME_RE: Lazy<regex::Regex> = Lazy::new(|| {
 });
 
 static CHAPTER_RE: Lazy<regex::Regex> = Lazy::new(|| {
-    regex::Regex::new(r"^(第[0-9一二三四五六七八九十零〇百千万两]+[章回节]|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s*\d+)")
-        .expect("章节标题正则编译失败")
+    regex::Regex::new(
+        r"^(第[0-9一二三四五六七八九十零〇百千万两]+[章回节]|[Cc][Hh][Aa][Pp][Tt][Ee][Rr]\s*\d+)",
+    )
+    .expect("章节标题正则编译失败")
 });
 
 /// 正则缓存：避免在章节检测循环中反复编译同一正则
@@ -142,13 +144,9 @@ impl ChapterDetector {
             return None;
         }
 
-        let score = self.calculator.calculate_chapter_score(
-            text,
-            line_num,
-            lines,
-            custom_pattern,
-            50,
-        );
+        let score =
+            self.calculator
+                .calculate_chapter_score(text, line_num, lines, custom_pattern, 50);
 
         let is_match = score.total_score >= self.volume_threshold;
 
@@ -182,13 +180,9 @@ impl ChapterDetector {
             return None;
         }
 
-        let score = self.calculator.calculate_chapter_score(
-            text,
-            line_num,
-            lines,
-            None,
-            usize::MAX,
-        );
+        let score =
+            self.calculator
+                .calculate_chapter_score(text, line_num, lines, None, usize::MAX);
 
         if score.total_score >= 0.45 {
             Some(ChapterMatchResult {
@@ -214,13 +208,9 @@ impl ChapterDetector {
             return None;
         }
 
-        let score = self.calculator.calculate_chapter_score(
-            text,
-            line_num,
-            lines,
-            None,
-            50,
-        );
+        let score = self
+            .calculator
+            .calculate_chapter_score(text, line_num, lines, None, 50);
 
         if score.total_score >= 0.45 {
             Some(ChapterMatchResult {

@@ -4,7 +4,10 @@ use kaf_cli::model::{InputFormat, Language, OutputFormat, TextAlignment, ThemePr
 #[test]
 fn shared_parser_align() {
     assert_eq!(parsers::parse_align("left").unwrap(), TextAlignment::Left);
-    assert_eq!(parsers::parse_align("CENTER").unwrap(), TextAlignment::Center);
+    assert_eq!(
+        parsers::parse_align("CENTER").unwrap(),
+        TextAlignment::Center
+    );
     assert_eq!(parsers::parse_align("Right").unwrap(), TextAlignment::Right);
     assert!(parsers::parse_align("unknown").is_err());
 }
@@ -26,9 +29,18 @@ fn shared_parser_format() {
 
 #[test]
 fn shared_parser_input_format() {
-    assert_eq!(parsers::parse_input_format("auto").unwrap(), InputFormat::Auto);
-    assert_eq!(parsers::parse_input_format("txt").unwrap(), InputFormat::Txt);
-    assert_eq!(parsers::parse_input_format("text").unwrap(), InputFormat::Txt);
+    assert_eq!(
+        parsers::parse_input_format("auto").unwrap(),
+        InputFormat::Auto
+    );
+    assert_eq!(
+        parsers::parse_input_format("txt").unwrap(),
+        InputFormat::Txt
+    );
+    assert_eq!(
+        parsers::parse_input_format("text").unwrap(),
+        InputFormat::Txt
+    );
     assert_eq!(
         parsers::parse_input_format("md").unwrap(),
         InputFormat::Markdown

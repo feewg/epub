@@ -45,7 +45,7 @@ impl Default for CoverConfig {
 
 /// 支持的图片扩展名列表
 #[allow(dead_code)]
-const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "avif"];
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
 
 /// 从封面源获取封面图片数据
 #[allow(dead_code)]
@@ -60,9 +60,7 @@ pub async fn fetch_cover(cover: &CoverSource) -> Result<Vec<u8>> {
 #[allow(dead_code)]
 pub fn fetch_local_cover(path: &Path) -> Result<Vec<u8>> {
     if !path.exists() {
-        return Err(KafError::FileNotFound(
-            path.to_string_lossy().to_string(),
-        ));
+        return Err(KafError::FileNotFound(path.to_string_lossy().to_string()));
     }
 
     // 读取文件
@@ -100,7 +98,6 @@ fn detect_format_by_extension(path: &Path) -> Option<ImageFormat> {
         "webp" => Some(ImageFormat::WebP),
         "bmp" => Some(ImageFormat::Bmp),
         "tiff" | "tif" => Some(ImageFormat::Tiff),
-        "avif" => Some(ImageFormat::Avif),
         _ => None,
     }
 }
@@ -129,14 +126,6 @@ pub fn detect_image_format(data: &[u8]) -> Result<ImageFormat> {
     if data.len() >= 2 && data[..2] == [0x42, 0x4D] {
         return Ok(ImageFormat::Bmp);
     }
-    // AVIF: ftyp at offset 4
-    if data.len() >= 12 && &data[4..8] == b"ftyp" {
-        let brand = &data[8..12];
-        if brand == b"avif" || brand == b"avis" {
-            return Ok(ImageFormat::Avif);
-        }
-    }
-
     // 如果 magic bytes 无法识别，尝试通过 image crate 解码
     image::ImageReader::new(std::io::Cursor::new(data))
         .with_guessed_format()
@@ -177,8 +166,7 @@ pub fn resize_cover(data: &[u8], config: &CoverConfig) -> Result<Vec<u8>> {
     // 计算等比缩放比例
     let scale = if width > config.max_width && height > config.max_height {
         // 宽高都超限，取较小比例
-        (config.max_width as f64 / width as f64)
-            .min(config.max_height as f64 / height as f64)
+        (config.max_width as f64 / width as f64).min(config.max_height as f64 / height as f64)
     } else if width > config.max_width {
         config.max_width as f64 / width as f64
     } else {
@@ -188,14 +176,15 @@ pub fn resize_cover(data: &[u8], config: &CoverConfig) -> Result<Vec<u8>> {
     let new_width = (width as f64 * scale).round() as u32;
     let new_height = (height as f64 * scale).round() as u32;
 
-    tracing::info!("封面缩放至: {}x{} (比例: {:.2}%)", new_width, new_height, scale * 100.0);
-
-    let img = image::load_from_memory(data)?;
-    let resized = img.resize(
+    tracing::info!(
+        "封面缩放至: {}x{} (比例: {:.2}%)",
         new_width,
         new_height,
-        image::imageops::FilterType::Lanczos3,
+        scale * 100.0
     );
+
+    let img = image::load_from_memory(data)?;
+    let resized = img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3);
 
     // 编码输出
     let output_format = match config.output_format {
@@ -216,7 +205,8 @@ pub fn resize_cover(data: &[u8], config: &CoverConfig) -> Result<Vec<u8>> {
 
     if output_format == ImageFormat::Jpeg {
         // JPEG 编码需要指定质量
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, config.quality);
+        let encoder =
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, config.quality);
         resized.write_with_encoder(encoder)?;
     } else {
         resized.write_to(&mut cursor, output_format)?;
@@ -234,7 +224,10 @@ pub fn optimize_cover(data: &[u8], config: &CoverConfig) -> Result<(Vec<u8>, Str
 
     tracing::info!(
         "封面优化 - 原始格式: {:?}, 尺寸: {}x{}, 大小: {} bytes",
-        format, width, height, data.len()
+        format,
+        width,
+        height,
+        data.len()
     );
 
     // 缩放（仅在需要时）
@@ -244,40 +237,37 @@ pub fn optimize_cover(data: &[u8], config: &CoverConfig) -> Result<(Vec<u8>, Str
         data.to_vec()
     };
 
-    // 如果输出格式不是 Auto 且与原始格式不同，需要转换
+    // resize_cover 可能会转码，因此所有元数据都以最终字节为准。
+    let processed_format = detect_image_format(&processed)?;
     let (output_data, mime_type) = match config.output_format {
-        CoverOutputFormat::Jpeg => {
-            if format == ImageFormat::Jpeg {
-                (processed, "image/jpeg".to_string())
-            } else {
-                let mut buffer = Vec::new();
-                let mut cursor = std::io::Cursor::new(&mut buffer);
-                let img = image::load_from_memory(&processed)?;
-                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, config.quality);
-                img.write_with_encoder(encoder)?;
-                (buffer, "image/jpeg".to_string())
-            }
+        CoverOutputFormat::Jpeg if processed_format != ImageFormat::Jpeg => {
+            let mut buffer = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut buffer);
+            let img = image::load_from_memory(&processed)?;
+            let encoder =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, config.quality);
+            img.write_with_encoder(encoder)?;
+            (buffer, "image/jpeg".to_string())
         }
-        CoverOutputFormat::Png => {
-            if format == ImageFormat::Png {
-                (processed, "image/png".to_string())
-            } else {
-                let mut buffer = Vec::new();
-                let mut cursor = std::io::Cursor::new(&mut buffer);
-                let img = image::load_from_memory(&processed)?;
-                img.write_to(&mut cursor, ImageFormat::Png)?;
-                (buffer, "image/png".to_string())
-            }
+        CoverOutputFormat::Png if processed_format != ImageFormat::Png => {
+            let mut buffer = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut buffer);
+            let img = image::load_from_memory(&processed)?;
+            img.write_to(&mut cursor, ImageFormat::Png)?;
+            (buffer, "image/png".to_string())
         }
+        CoverOutputFormat::Jpeg => (processed, "image/jpeg".to_string()),
+        CoverOutputFormat::Png => (processed, "image/png".to_string()),
         CoverOutputFormat::Auto => {
-            let mime = format_to_mime(&format);
+            let mime = format_to_mime(&processed_format);
             (processed, mime)
         }
     };
 
     tracing::info!(
         "封面优化完成 - 输出格式: {}, 大小: {} bytes",
-        mime_type, output_data.len()
+        mime_type,
+        output_data.len()
     );
 
     Ok((output_data, mime_type))
@@ -292,8 +282,7 @@ pub fn format_to_mime(format: &ImageFormat) -> String {
         ImageFormat::WebP => "image/webp".to_string(),
         ImageFormat::Bmp => "image/bmp".to_string(),
         ImageFormat::Tiff => "image/tiff".to_string(),
-        ImageFormat::Avif => "image/avif".to_string(),
-        _ => "image/jpeg".to_string(),
+        _ => "application/octet-stream".to_string(),
     }
 }
 
@@ -303,7 +292,8 @@ pub fn format_to_mime(format: &ImageFormat) -> String {
 #[allow(dead_code)]
 pub fn is_image_file(path: &Path) -> bool {
     // 首先检查扩展名
-    let ext_match = path.extension()
+    let ext_match = path
+        .extension()
         .and_then(|e| e.to_str())
         .map(|e| IMAGE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
         .unwrap_or(false);

@@ -6,7 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn full_conversion_pipeline_produces_epub() {
     let dir = std::env::temp_dir().join(format!(
         "kaf_e2e_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
 

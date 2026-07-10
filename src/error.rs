@@ -50,10 +50,6 @@ pub enum KafError {
     #[error("未知错误: {0}")]
     Unknown(String),
 
-    /// ZIP 错误
-    #[error("ZIP 错误: {0}")]
-    Zip(#[from] zip::result::ZipError),
-
     /// EPUB Builder 错误
     #[error("EPUB Builder 错误: {0}")]
     EpubBuilder(String),

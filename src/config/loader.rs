@@ -1,301 +1,305 @@
 //! 配置加载器
 //!
-//! 负责从不同来源加载和合并配置
+//! 负责从默认值、YAML 文件和显式 CLI 参数中按优先级合并配置。
 
 use crate::cli::Cli;
 use crate::config::parsers;
-use crate::error::{KafError, Result};
-use crate::model::Book;
-use serde_yaml::Value;
+use crate::error::Result;
+use crate::model::{Book, ChapterHeader, CoverSource};
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// 配置源
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum ConfigSource {
-    /// CLI 参数（最高优先级）
     Cli,
-    /// 配置文件
-    File(#[allow(dead_code)] PathBuf),
-    /// 默认配置
+    File(PathBuf),
     Default,
 }
 
-/// 配置加载器
-/// 配置加载器
-#[allow(dead_code)]
-pub struct ConfigLoader {
-    /// 配置文件名称列表
-    config_filenames: Vec<String>,
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ConfigCover {
+    Path(PathBuf),
+    Source(CoverSource),
 }
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct FileConfig {
+    filename: Option<PathBuf>,
+    bookname: Option<String>,
+    author: Option<String>,
+    chapter_match: Option<String>,
+    volume_match: Option<String>,
+    exclusion_pattern: Option<String>,
+    max_title_length: Option<usize>,
+    indent: Option<usize>,
+    align: Option<String>,
+    unknown_title: Option<String>,
+    cover: Option<ConfigCover>,
+    font: Option<PathBuf>,
+    paragraph_spacing: Option<String>,
+    line_height: Option<String>,
+    add_tips: Option<bool>,
+    lang: Option<String>,
+    format: Option<String>,
+    output_name: Option<String>,
+    separate_chapter_number: Option<bool>,
+    custom_css: Option<PathBuf>,
+    extended_css: Option<String>,
+    css_variables: Option<HashMap<String, String>>,
+    chapter_header: Option<ChapterHeader>,
+    theme: Option<String>,
+    input_format: Option<String>,
+    lookahead_lines: Option<usize>,
+}
+
+/// 配置加载器
+pub struct ConfigLoader;
 
 impl ConfigLoader {
     /// 创建新的配置加载器
     pub fn new() -> Self {
-        Self {
-            config_filenames: vec![
-                "kaf.yaml".to_string(),
-                "kaf.yml".to_string(),
-                ".kaf.yaml".to_string(),
-                ".kaf.yml".to_string(),
-            ],
-        }
+        Self
     }
 
-    /// 从 CLI 加载配置（统一的入口）
+    /// 从 CLI 加载配置（默认值 < 配置文件 < 显式 CLI 参数）
     pub fn load_from_cli(&self, cli: &Cli) -> Result<Book> {
         let mut book = Book::default();
 
-        // 1. 加载配置文件（如果指定）
-        if let Some(config_path) = &cli.config {
-            self.load_config_file(&mut book, config_path, ConfigSource::File(config_path.clone()))?;
-        } else {
-            // 自动查找配置文件
-            if let Some(auto_config) = Self::find_config(&cli.filename) {
-                self.load_config_file(&mut book, &auto_config, ConfigSource::File(auto_config.clone()))?;
-            }
+        let config_path = cli
+            .config
+            .clone()
+            .or_else(|| Self::find_config(&cli.filename));
+        if let Some(path) = config_path {
+            self.load_config_file(&mut book, &path)?;
         }
 
-        // 2. 应用 CLI 参数（最高优先级）
         self.apply_cli_config(&mut book, cli)?;
-
-        // 3. 如果没有指定文件名，使用 CLI 的文件名
-        if book.filename.as_os_str().is_empty() {
-            if let Some(ref filename) = cli.filename {
-                book.filename = filename.clone();
-            }
-        }
-
         Ok(book)
     }
 
     /// 查找配置文件
     pub fn find_config(filename: &Option<PathBuf>) -> Option<PathBuf> {
         let config_names = ["kaf.yaml", "kaf.yml", ".kaf.yaml", ".kaf.yml"];
+        let input_dir = filename.as_ref().and_then(|path| path.parent());
 
-        // 优先搜索文件所在目录，然后搜索当前目录
-        let search_dirs = filename.as_ref()
-            .and_then(|p| p.parent())
-            .into_iter()
-            .chain(Some(Path::new(".")));
-
-        for dir in search_dirs {
-            for name in &config_names {
+        for dir in input_dir.into_iter().chain(std::iter::once(Path::new("."))) {
+            for name in config_names {
                 let path = dir.join(name);
-                if path.exists() {
+                if path.is_file() {
                     return Some(path);
                 }
             }
         }
-
         None
     }
 
-    /// 加载配置文件
-    fn load_config_file(&self, book: &mut Book, path: &Path, source: ConfigSource) -> Result<()> {
-        let content = fs::read_to_string(path)?;
-        let config: Value = serde_yaml::from_str(&content)
-            .map_err(KafError::ConfigParseError)?;
-
-        self.merge_config(book, &config, source)
+    fn load_config_file(&self, book: &mut Book, path: &Path) -> Result<()> {
+        let absolute_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let absolute_path = std::fs::canonicalize(absolute_path)?;
+        let content = fs::read_to_string(&absolute_path)?;
+        let config: FileConfig = serde_yaml::from_str(&content)?;
+        self.merge_config(book, config, absolute_path.parent())
     }
 
-    /// 合并配置
-    fn merge_config(&self, book: &mut Book, config: &Value, _source: ConfigSource) -> Result<()> {
-        // 字符串字段
-        if let Some(s) = config.get("bookname").and_then(|v| v.as_str()) {
-            book.bookname = Some(s.to_string());
+    fn merge_config(
+        &self,
+        book: &mut Book,
+        config: FileConfig,
+        config_dir: Option<&Path>,
+    ) -> Result<()> {
+        if let Some(value) = config.filename {
+            book.filename = Self::resolve_config_path(value, config_dir);
         }
-        if let Some(s) = config.get("author").and_then(|v| v.as_str()) {
-            book.author = s.to_string();
+        if let Some(value) = config.bookname {
+            book.bookname = Some(value);
         }
-        if let Some(s) = config.get("chapter_match").and_then(|v| v.as_str()) {
-            book.chapter_match = Some(s.to_string());
+        if let Some(value) = config.author {
+            book.author = value;
         }
-        if let Some(s) = config.get("volume_match").and_then(|v| v.as_str()) {
-            book.volume_match = Some(s.to_string());
+        if let Some(value) = config.chapter_match {
+            book.chapter_match = Some(value);
         }
-        if let Some(s) = config.get("exclusion_pattern").and_then(|v| v.as_str()) {
-            book.exclusion_pattern = Some(s.to_string());
+        if let Some(value) = config.volume_match {
+            book.volume_match = Some(value);
         }
-        if let Some(s) = config.get("unknown_title").and_then(|v| v.as_str()) {
-            book.unknown_title = s.to_string();
+        if let Some(value) = config.exclusion_pattern {
+            book.exclusion_pattern = Some(value);
         }
-        if let Some(s) = config.get("paragraph_spacing").and_then(|v| v.as_str()) {
-            book.paragraph_spacing = s.to_string();
+        if let Some(value) = config.max_title_length {
+            book.max_title_length = value;
         }
-
-        // 可选字符串字段
-        if let Some(s) = config.get("line_height").and_then(|v| v.as_str()) {
-            book.line_height = Some(s.to_string());
+        if let Some(value) = config.indent {
+            book.indent = value;
         }
-
-        // 数字字段
-        if let Some(n) = config.get("max_title_length").and_then(|v| v.as_u64()) {
-            book.max_title_length = n as usize;
+        if let Some(value) = config.align {
+            book.align = parsers::parse_align(&value)?;
         }
-        if let Some(n) = config.get("indent").and_then(|v| v.as_u64()) {
-            book.indent = n as usize;
+        if let Some(value) = config.unknown_title {
+            book.unknown_title = value;
         }
-
-        // 布尔字段
-        if let Some(b) = config.get("add_tips").and_then(|v| v.as_bool()) {
-            book.add_tips = b;
-        }
-        if let Some(b) = config.get("separate_chapter_number").and_then(|v| v.as_bool()) {
-            book.separate_chapter_number = b;
-        }
-
-        // 枚举字段
-        if let Some(s) = config.get("align").and_then(|v| v.as_str()) {
-            book.align = parsers::parse_align(s)?;
-        }
-        if let Some(s) = config.get("lang").and_then(|v| v.as_str()) {
-            book.lang = parsers::parse_lang(s)?;
-        }
-        if let Some(s) = config.get("format").and_then(|v| v.as_str()) {
-            book.format = parsers::parse_format(s)?;
-        }
-
-        // 自定义 CSS
-        if let Some(ref custom_css) = config.get("custom_css").and_then(|v| v.as_str()) {
-            book.custom_css = Some(custom_css.into());
-        }
-        if let Some(ref extended_css) = config.get("extended_css").and_then(|v| v.as_str()) {
-            book.extended_css = Some(extended_css.to_string());
-        }
-
-        // 字体
-        if let Some(ref font) = config.get("font").and_then(|v| v.as_str()) {
-            book.font = Some(PathBuf::from(font));
-        }
-
-        // 封面
-        if let Some(ref cover) = config.get("cover").and_then(|v| v.as_str()) {
-            book.cover = Some(crate::model::CoverSource::Local {
-                path: PathBuf::from(cover),
+        if let Some(value) = config.cover {
+            book.cover = Some(match value {
+                ConfigCover::Path(path) => CoverSource::Local {
+                    path: Self::resolve_config_path(path, config_dir),
+                },
+                ConfigCover::Source(CoverSource::Local { path }) => CoverSource::Local {
+                    path: Self::resolve_config_path(path, config_dir),
+                },
+                ConfigCover::Source(source) => source,
             });
         }
-
-        // 输出文件名
-        if let Some(ref output_name) = config.get("output_name").and_then(|v| v.as_str()) {
-            book.output_name = Some(output_name.to_string());
+        if let Some(value) = config.font {
+            book.font = Some(Self::resolve_config_path(value, config_dir));
         }
-
-        // 主题
-        if let Some(s) = config.get("theme").and_then(|v| v.as_str()) {
-            book.theme = parsers::parse_theme(s)?;
+        if let Some(value) = config.paragraph_spacing {
+            book.paragraph_spacing = value;
         }
-
-        // 输入格式
-        if let Some(s) = config.get("input_format").and_then(|v| v.as_str()) {
-            book.input_format = parsers::parse_input_format(s)?;
+        if let Some(value) = config.line_height {
+            book.line_height = Some(value);
         }
-
+        if let Some(value) = config.add_tips {
+            book.add_tips = value;
+        }
+        if let Some(value) = config.lang {
+            book.lang = parsers::parse_lang(&value)?;
+        }
+        if let Some(value) = config.format {
+            book.format = parsers::parse_format(&value)?;
+        }
+        if let Some(value) = config.output_name {
+            book.output_name = Some(value);
+        }
+        if let Some(value) = config.separate_chapter_number {
+            book.separate_chapter_number = value;
+        }
+        if let Some(value) = config.custom_css {
+            book.custom_css = Some(Self::resolve_config_path(value, config_dir));
+        }
+        if let Some(value) = config.extended_css {
+            book.extended_css = Some(value);
+        }
+        if let Some(value) = config.css_variables {
+            book.css_variables = value;
+        }
+        if let Some(mut value) = config.chapter_header {
+            value.image = value
+                .image
+                .map(|path| Self::resolve_config_path(path, config_dir));
+            value.image_folder = value
+                .image_folder
+                .map(|path| Self::resolve_config_path(path, config_dir));
+            book.chapter_header = value;
+        }
+        if let Some(value) = config.theme {
+            book.theme = parsers::parse_theme(&value)?;
+        }
+        if let Some(value) = config.input_format {
+            book.input_format = parsers::parse_input_format(&value)?;
+        }
+        if let Some(value) = config.lookahead_lines {
+            book.lookahead_lines = value;
+        }
         Ok(())
     }
 
-    /// 应用 CLI 配置
-    fn apply_cli_config(&self, book: &mut Book, cli: &Cli) -> Result<()> {
-        // 文件相关
-        if let Some(ref filename) = cli.filename {
-            book.filename = filename.clone();
+    fn resolve_config_path(path: PathBuf, config_dir: Option<&Path>) -> PathBuf {
+        if path.is_absolute() {
+            path
+        } else {
+            config_dir.unwrap_or_else(|| Path::new(".")).join(path)
         }
+    }
 
-        // 书籍信息
-        if let Some(ref bookname) = cli.bookname {
-            book.bookname = Some(bookname.clone());
+    fn apply_cli_config(&self, book: &mut Book, cli: &Cli) -> Result<()> {
+        if let Some(value) = &cli.filename {
+            book.filename = value.clone();
         }
-        // 只有当 CLI 的 author 不是默认值时，才覆盖配置文件的值
-        if cli.author != "YSTYLE" {
+        if let Some(value) = &cli.output_name {
+            book.output_name = Some(value.clone());
+        }
+        if let Some(value) = &cli.bookname {
+            book.bookname = Some(value.clone());
+        }
+        if cli.is_explicit("author") {
             book.author = cli.author.clone();
         }
-
-        // 解析配置
-        if let Some(ref chapter_match) = cli.chapter_match {
-            book.chapter_match = Some(chapter_match.clone());
+        if let Some(value) = &cli.chapter_match {
+            book.chapter_match = Some(value.clone());
         }
-        if let Some(ref volume_match) = cli.volume_match {
-            book.volume_match = Some(volume_match.clone());
+        if let Some(value) = &cli.volume_match {
+            book.volume_match = Some(value.clone());
         }
-        if let Some(ref exclude) = cli.exclude {
-            book.exclusion_pattern = Some(exclude.clone());
+        if let Some(value) = &cli.exclude {
+            book.exclusion_pattern = Some(value.clone());
+        }
+        if cli.is_explicit("max_title_length") {
+            book.max_title_length = cli.max_title_length;
+        }
+        if cli.is_explicit("indent") {
+            book.indent = cli.indent;
+        }
+        if cli.is_explicit("align") {
+            book.align = parsers::parse_align(&cli.align)?;
+        }
+        if cli.is_explicit("format") {
+            book.format = parsers::parse_format(&cli.format)?;
+        }
+        if cli.is_explicit("lang") {
+            book.lang = parsers::parse_lang(&cli.lang)?;
+        }
+        if cli.is_explicit("separate_chapter_number") {
+            book.separate_chapter_number = cli.separate_chapter_number;
+        }
+        if cli.is_explicit("theme") {
+            book.theme = parsers::parse_theme(&cli.theme)?;
+        }
+        if cli.is_explicit("input_format") {
+            book.input_format = parsers::parse_input_format(&cli.input_format)?;
         }
 
-        // 格式配置
-        book.max_title_length = cli.max_title_length;
-        book.indent = cli.indent;
-        book.align = parsers::parse_align(&cli.align)?;
-        book.format = parsers::parse_format(&cli.format)?;
-        book.lang = parsers::parse_lang(&cli.lang)?;
-        book.separate_chapter_number = cli.separate_chapter_number;
-
-        // 样式配置
-        if let Some(ref cover) = cli.cover {
-            book.cover = Some(crate::model::CoverSource::Local {
-                path: PathBuf::from(cover),
+        if let Some(value) = &cli.cover {
+            book.cover = Some(CoverSource::Local {
+                path: Self::resolve_cli_path(Path::new(value))?,
             });
         }
-        if let Some(ref custom_css) = cli.custom_css {
-            book.custom_css = Some(custom_css.clone());
+        if let Some(value) = &cli.custom_css {
+            book.custom_css = Some(Self::resolve_cli_path(value)?);
         }
-        if let Some(ref extended_css) = cli.extended_css {
-            book.extended_css = Some(extended_css.clone());
+        if let Some(value) = &cli.extended_css {
+            book.extended_css = Some(value.clone());
         }
-        if let Some(ref font) = cli.font {
-            book.font = Some(font.clone());
+        if let Some(value) = &cli.font {
+            book.font = Some(Self::resolve_cli_path(value)?);
         }
-        if let Some(ref line_height) = cli.line_height {
-            book.line_height = Some(line_height.clone());
+        if let Some(value) = &cli.line_height {
+            book.line_height = Some(value.clone());
         }
-        if let Some(ref paragraph_spacing) = cli.paragraph_spacing {
-            book.paragraph_spacing = paragraph_spacing.clone();
+        if let Some(value) = &cli.paragraph_spacing {
+            book.paragraph_spacing = value.clone();
         }
-
-        // 输入格式
-        book.input_format = parsers::parse_input_format(&cli.input_format)?;
-
         Ok(())
+    }
+
+    fn resolve_cli_path(path: &Path) -> Result<PathBuf> {
+        if path.is_absolute() {
+            Ok(path.to_path_buf())
+        } else {
+            Ok(std::env::current_dir()?.join(path))
+        }
     }
 }
 
 impl Default for ConfigLoader {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::{Language, OutputFormat, TextAlignment};
-
-    #[test]
-    fn test_config_loader_creation() {
-        let loader = ConfigLoader::new();
-        assert_eq!(loader.config_filenames.len(), 4);
-    }
-
-    #[test]
-    fn test_parse_align() {
-        assert!(matches!(parsers::parse_align("left"), Ok(TextAlignment::Left)));
-        assert!(matches!(parsers::parse_align("center"), Ok(TextAlignment::Center)));
-        assert!(matches!(parsers::parse_align("right"), Ok(TextAlignment::Right)));
-        assert!(parsers::parse_align("invalid").is_err());
-    }
-
-    #[test]
-    fn test_parse_lang() {
-        assert!(matches!(parsers::parse_lang("zh"), Ok(Language::Zh)));
-        assert!(matches!(parsers::parse_lang("en"), Ok(Language::En)));
-        assert!(parsers::parse_lang("invalid").is_err());
-    }
-
-    #[test]
-    fn test_parse_format() {
-        assert!(matches!(parsers::parse_format("epub"), Ok(OutputFormat::Epub)));
-        assert!(matches!(parsers::parse_format("all"), Ok(OutputFormat::All)));
-        assert!(parsers::parse_format("invalid").is_err());
     }
 }

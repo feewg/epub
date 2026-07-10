@@ -6,8 +6,7 @@ use crate::model::Book;
 use crate::utils::encoding::ensure_no_bom;
 
 /// 段落模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[allow(dead_code)]
 pub enum ParagraphMode {
     /// 每行独立段落
@@ -18,7 +17,6 @@ pub enum ParagraphMode {
     #[default]
     Smart,
 }
-
 
 /// 段落处理器
 #[allow(dead_code)]

@@ -4,15 +4,39 @@
 
 use crate::error::{KafError, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// 解析封面、字体、CSS 和图片等资源路径。
+///
+/// 相对路径优先基于输入文件目录，找不到时再基于当前工作目录。
+pub fn resolve_resource_path(path: &Path, input_parent: Option<&Path>) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return path
+            .exists()
+            .then(|| path.to_path_buf())
+            .ok_or_else(|| KafError::FileNotFound(path.display().to_string()));
+    }
+
+    if let Some(base) = input_parent {
+        let candidate = base.join(path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join(path);
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(KafError::FileNotFound(path.display().to_string()))
+}
 
 /// 读取文件内容
 #[allow(dead_code)]
 pub fn read_file(path: &Path) -> Result<String> {
     if !path.exists() {
-        return Err(KafError::FileNotFound(
-            path.to_string_lossy().to_string(),
-        ));
+        return Err(KafError::FileNotFound(path.to_string_lossy().to_string()));
     }
 
     fs::read_to_string(path)
@@ -23,9 +47,7 @@ pub fn read_file(path: &Path) -> Result<String> {
 #[allow(dead_code)]
 pub fn read_file_bytes(path: &Path) -> Result<Vec<u8>> {
     if !path.exists() {
-        return Err(KafError::FileNotFound(
-            path.to_string_lossy().to_string(),
-        ));
+        return Err(KafError::FileNotFound(path.to_string_lossy().to_string()));
     }
 
     fs::read(path)

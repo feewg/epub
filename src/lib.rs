@@ -12,13 +12,15 @@ pub mod parser;
 pub mod style;
 pub mod utils;
 
+pub use batch::{BatchConfig, BatchInput, BatchReport, EnhancedBatchConverter, ReportFormat};
+pub use config::{
+    generate_config_examples, load_config, validate_config, ConfigLoader, ConfigValidator,
+};
 pub use converter::EpubConverter3;
 pub use error::{KafError, Result};
-pub use model::{Book, Section, Language, TextAlignment, OutputFormat, InputFormat, ThemePreset};
-pub use parser::{ChapterDetector, ParagraphProcessor, MarkdownParser, FormatDetector, Parser};
-pub use style::{Theme, CssGenerator};
-pub use batch::{BatchConfig, EnhancedBatchConverter, BatchReport, ReportFormat};
-pub use config::{load_config, validate_config, ConfigLoader, ConfigValidator, generate_config_examples};
+pub use model::{Book, InputFormat, Language, OutputFormat, Section, TextAlignment, ThemePreset};
+pub use parser::{ChapterDetector, FormatDetector, MarkdownParser, ParagraphProcessor, Parser};
+pub use style::{CssGenerator, Theme};
 
 /// 生成示例配置（向后兼容）
 pub fn generate_example_config() -> String {

@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn temp_dir_with_file(name: &str, content: &str) -> (PathBuf, PathBuf) {
     let dir = std::env::temp_dir().join(format!(
         "kaf_batch_preserves_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);

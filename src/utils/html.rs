@@ -9,14 +9,10 @@ use regex::Regex;
 #[allow(dead_code)]
 const ALLOWED_TAGS: &[&str] = &[
     // 单标签
-    "img", "br", "hr",
-    // 文本标签
-    "p", "span", "div",
-    // 格式标签
-    "b", "i", "u", "s", "strong", "em",
-    // 链接标签
-    "a",
-    // 表格标签
+    "img", "br", "hr", // 文本标签
+    "p", "span", "div", // 格式标签
+    "b", "i", "u", "s", "strong", "em", // 链接标签
+    "a",  // 表格标签
     "table", "tr", "td", "th",
 ];
 
@@ -67,12 +63,20 @@ pub fn sanitize_html_tags(input: &str) -> String {
     result
 }
 
-/// 转义 XML 特殊字符（用于 XML 内容）
-/// 接受 &str 或类似类型，自动移除 BOM
+/// 移除 XML 1.0 不允许的控制字符。
+pub fn remove_invalid_xml_chars(input: &str) -> String {
+    input
+        .chars()
+        .filter(|character| {
+            matches!(*character, '\u{9}' | '\u{A}' | '\u{D}')
+                || matches!(*character as u32, 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF)
+        })
+        .collect()
+}
+
+/// 转义 XML 特殊字符（用于 XML 内容和属性）。
 pub fn escape_xml<T: AsRef<str>>(input: T) -> String {
-    let s = input.as_ref();
-    // 先移除 BOM，再转义特殊字符
-    s.trim_start_matches('\u{FEFF}')
+    remove_invalid_xml_chars(input.as_ref().trim_start_matches('\u{FEFF}'))
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

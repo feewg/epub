@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn write_temp_novel() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "kaf_lookahead_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
     ));
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join("novel.txt");
@@ -31,7 +34,11 @@ fn custom_lookahead_value_works() {
         };
         let mut parser = Parser::new(book);
         let sections = parser.parse_streaming().expect("流式解析不应失败");
-        assert!(!sections.is_empty(), "lookahead={} 时应解析出章节", lookahead);
+        assert!(
+            !sections.is_empty(),
+            "lookahead={} 时应解析出章节",
+            lookahead
+        );
         assert_eq!(sections[0].title, "第一章");
     }
 }

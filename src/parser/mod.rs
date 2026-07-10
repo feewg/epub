@@ -14,13 +14,11 @@ pub use format_detector::FormatDetector;
 pub use markdown_parser::MarkdownParser;
 pub use paragraph_processor::ParagraphProcessor;
 
-
-use crate::error::{KafError, Result};
+use crate::error::Result;
 use crate::model::{Book, InputFormat, Section};
 use crate::utils::encoding::{detect_and_convert, ensure_no_bom};
 use crate::utils::regex::RegexCache;
 use std::fs;
-use std::io::{BufRead, BufReader, Cursor};
 use tracing::{debug, info};
 
 /// 解析器结构体
@@ -87,132 +85,12 @@ impl Parser {
         self.parse_content(content)
     }
 
-    /// 流式解析 TXT 文件（适用于大文件）
-    #[allow(dead_code)]
+    /// 兼容旧 API 的解析入口。
+    ///
+    /// 旧实现同样会先读取完整文件，但使用了另一套章节上下文算法，导致结果不一致。
+    /// 现在统一复用主解析路径，确保相同输入得到相同章节结构。
     pub fn parse_streaming(&mut self) -> Result<Vec<Section>> {
-        // 1. 读取文件并检测编码
-        let bytes = fs::read(&self.book.filename)?;
-        let content = detect_and_convert(&bytes)?;
-
-        // 2. 确定输入格式
-        let format = match self.book.input_format {
-            InputFormat::Auto => {
-                let detected = FormatDetector::detect(&self.book.filename, &content);
-                debug!("自动检测输入格式（流式）: {:?}", detected);
-                detected
-            }
-            other => other,
-        };
-
-        // 3. 流式解析（仅支持 TXT）
-        match format {
-            InputFormat::Markdown => {
-                info!("Markdown 不支持流式解析，切换到普通解析");
-                self.parse_markdown(&content)
-            }
-            InputFormat::Txt | InputFormat::Auto => {
-                // 使用 Cursor 进行流式读取
-                let cursor = Cursor::new(content);
-                let reader = BufReader::new(cursor);
-                self.parse_content_streaming(reader)
-            }
-        }
-    }
-
-    /// 解析文本内容（流式版本）
-    #[allow(dead_code)]
-    fn parse_content_streaming<R: BufRead>(&mut self, reader: R) -> Result<Vec<Section>> {
-        let mut sections = Vec::new();
-        let mut current_section = Section::default();
-        let mut lines_cache: Vec<String> = Vec::new();
-
-        // 从书籍配置读取预读取缓冲区大小（用于上下文判断）
-        let lookahead_lines = self.book.lookahead_lines.max(1);
-        let mut buffer_lines: Vec<String> = Vec::with_capacity(lookahead_lines);
-
-        for line_result in reader.lines() {
-            let line = line_result.map_err(|e| {
-                KafError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-            })?;
-
-            let trimmed = line.trim();
-            lines_cache.push(line.clone());
-
-            // 维护 lookahead 缓冲区
-            if !trimmed.is_empty() {
-                buffer_lines.push(trimmed.to_string());
-                if buffer_lines.len() > lookahead_lines {
-                    buffer_lines.remove(0);
-                }
-            }
-
-            // 跳过空行
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            // 使用缓冲区内的位置而非全局行号，避免 scorer/chapter_detector 越界
-            let pos_in_buffer = buffer_lines.len().saturating_sub(1);
-
-            // 转换为 &str 引用以供检测使用
-            let lines_refs: Vec<&str> = buffer_lines.iter().map(|s| s.as_str()).collect();
-
-            // 检查是否是卷标题
-            if self.chapter_detector.detect_volume(
-                trimmed,
-                pos_in_buffer,
-                &lines_refs,
-                self.book.volume_match.as_deref()
-            ).is_some() {
-                // 保存当前章节
-                if !current_section.title.is_empty() {
-                    sections.push(std::mem::take(&mut current_section));
-                }
-
-                // 创建新卷（确保标题无 BOM）
-                current_section.title = ensure_no_bom(trimmed);
-                current_section.content = String::new();
-                continue;
-            }
-
-            // 检查是否是章节标题
-            if self.chapter_detector.detect_chapter(
-                trimmed,
-                pos_in_buffer,
-                &lines_refs,
-                self.book.chapter_match.as_deref()
-            ).is_some() {
-                // 检查是否被排除
-                if !self.is_excluded(trimmed)? {
-                    // 保存当前章节
-                    if !current_section.title.is_empty() {
-                        sections.push(std::mem::take(&mut current_section));
-                    }
-
-                    // 创建新章节（确保标题无 BOM）
-                    current_section.title = ensure_no_bom(trimmed);
-                    current_section.content = String::new();
-                    continue;
-                }
-            }
-
-            // 添加内容到当前章节
-            let paragraph = self.paragraph_processor.process(trimmed);
-            if !paragraph.is_empty() {
-                if current_section.content.is_empty() {
-                    current_section.content = paragraph;
-                } else {
-                    current_section.content.push_str(&paragraph);
-                }
-            }
-        }
-
-        // 保存最后一个章节
-        if !current_section.title.is_empty() || !current_section.content.is_empty() {
-            sections.push(current_section);
-        }
-
-        Ok(sections)
+        self.parse()
     }
 
     /// 解析文本内容
@@ -232,14 +110,13 @@ impl Parser {
             }
 
             // 检查是否是卷标题
-            if self.chapter_detector.detect_volume(
-                trimmed,
-                line_num,
-                &lines,
-                self.book.volume_match.as_deref()
-            ).is_some() {
-                // 保存当前章节
-                if !current_section.title.is_empty() {
+            if self
+                .chapter_detector
+                .detect_volume(trimmed, line_num, &lines, self.book.volume_match.as_deref())
+                .is_some()
+            {
+                // 保存当前章节或标题前的序言正文
+                if !current_section.title.is_empty() || !current_section.content.is_empty() {
                     sections.push(std::mem::take(&mut current_section));
                 }
 
@@ -250,16 +127,20 @@ impl Parser {
             }
 
             // 检查是否是章节标题
-            if self.chapter_detector.detect_chapter(
-                trimmed,
-                line_num,
-                &lines,
-                self.book.chapter_match.as_deref()
-            ).is_some() {
+            if self
+                .chapter_detector
+                .detect_chapter(
+                    trimmed,
+                    line_num,
+                    &lines,
+                    self.book.chapter_match.as_deref(),
+                )
+                .is_some()
+            {
                 // 检查是否被排除
                 if !self.is_excluded(trimmed)? {
-                    // 保存当前章节
-                    if !current_section.title.is_empty() {
+                    // 保存当前章节或标题前的序言正文
+                    if !current_section.title.is_empty() || !current_section.content.is_empty() {
                         sections.push(std::mem::take(&mut current_section));
                     }
 

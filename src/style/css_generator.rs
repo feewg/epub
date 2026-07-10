@@ -75,7 +75,8 @@ img {
     display: block;
     margin: 1em auto;
 }
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 生成章节样式
@@ -134,12 +135,16 @@ h5, h6 {{
     }
 
     /// 生成段落样式
-    fn generate_paragraph_styles(&self, book: &Book, _theme: &Theme) -> String {
+    fn generate_paragraph_styles(&self, book: &Book, theme: &Theme) -> String {
         let indent_em = book.indent as f32;
         let spacing = &book.paragraph_spacing;
-        let line_height = book.line_height.as_deref().unwrap_or("1.8");
+        let line_height = book
+            .line_height
+            .clone()
+            .unwrap_or_else(|| theme.typography.line_height.to_string());
 
-        format!(r#"/* 段落样式 */
+        format!(
+            r#"/* 段落样式 */
 p {{
     margin-bottom: {};
     text-indent: {}em;
@@ -161,7 +166,9 @@ p.no-indent {{
     font-weight: bold;
     color: var(--accent-color);
 }}
-"#, spacing, indent_em, line_height)
+"#,
+            spacing, indent_em, line_height
+        )
     }
 
     /// 生成特殊元素样式
@@ -312,7 +319,8 @@ hr {
 @media (prefers-color-scheme: dark) {
     /* 阅读器可能使用此媒体查询 */
 }
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 生成仅包含基础样式的 CSS（用于兼容性）

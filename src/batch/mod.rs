@@ -5,18 +5,15 @@
 mod enhanced;
 mod report;
 
-pub use enhanced::{BatchConfig, EnhancedBatchConverter};
+pub use enhanced::{BatchConfig, BatchInput, EnhancedBatchConverter};
 pub use report::{BatchReport, ReportFormat};
 
-use crate::converter::EpubConverter3;
+use crate::cli::Cli;
+use crate::config::load_config;
 use crate::error::Result;
 use crate::model::Book;
-use crate::parser::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::Semaphore;
-use tracing::{info, warn, error};
 
 /// 批量转换结果
 #[derive(Debug, Default)]
@@ -25,6 +22,8 @@ pub struct BatchResult {
     pub success: Vec<PathBuf>,
     /// 失败的书籍
     pub failed: Vec<(PathBuf, String)>,
+    /// 跳过的书籍及原因
+    pub skipped: Vec<(PathBuf, String)>,
     /// 总耗时（秒）
     #[allow(dead_code)]
     pub elapsed_secs: f64,
@@ -42,207 +41,199 @@ impl FolderScanner {
         Self { root, recursive }
     }
 
-    /// 扫描文件夹，返回所有 TXT 文件
-    #[allow(dead_code)]
+    /// 扫描文件夹，返回所有支持的输入文件。
     pub fn scan(&self) -> Result<Vec<PathBuf>> {
+        if !self.root.is_dir() {
+            return Err(crate::error::KafError::ParseError(format!(
+                "批量输入路径不是目录: {}",
+                self.root.display()
+            )));
+        }
         let mut files = Vec::new();
         self.scan_directory(&self.root, &mut files)?;
+        files.sort();
         Ok(files)
     }
 
-    /// 扫描目录
-    #[allow(dead_code)]
     fn scan_directory(&self, dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
+            let file_type = entry.file_type()?;
             let path = entry.path();
-
-            if path.is_dir() {
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
                 if self.recursive {
                     self.scan_directory(&path, files)?;
                 }
-            } else if path.extension().is_some_and(|e| e == "txt") {
+            } else if file_type.is_file() && Self::is_supported_input(&path) {
                 files.push(path);
             }
         }
         Ok(())
     }
 
-    /// 扫描文件夹并创建书籍配置
-    pub fn scan_with_config(&self) -> Result<Vec<Book>> {
-        let mut books = Vec::new();
-        self.scan_directory_with_config(&self.root, &mut books)?;
-        Ok(books)
+    fn is_supported_input(path: &Path) -> bool {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "txt" | "md" | "markdown" | "mkd"
+                )
+            })
+            .unwrap_or(false)
     }
 
-    /// 扫描目录并创建书籍配置
-    fn scan_directory_with_config(&self, dir: &Path, books: &mut Vec<Book>) -> Result<()> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
+    /// 使用默认配置扫描文件夹。
+    pub fn scan_with_config(&self) -> Result<Vec<Book>> {
+        self.scan()?
+            .into_iter()
+            .map(|path| self.create_default_book_config(&path))
+            .collect()
+    }
 
-            if path.is_dir() {
-                if self.recursive {
-                    self.scan_directory_with_config(&path, books)?;
-                }
-            } else if path.extension().is_some_and(|e| e == "txt") {
-                if let Some(book) = self.create_book_config(&path)? {
-                    books.push(book);
-                }
+    /// 使用与单文件模式相同的 YAML/CLI 分层规则创建每本书的配置。
+    pub fn scan_with_cli(&self, cli: &Cli) -> Result<Vec<Book>> {
+        self.scan()?
+            .into_iter()
+            .map(|path| self.create_book_from_cli(cli, &path))
+            .collect()
+    }
+
+    /// 扫描批量输入，并将配置错误保留为逐文件结果。
+    pub fn scan_with_cli_inputs(&self, cli: &Cli) -> Result<Vec<BatchInput>> {
+        Ok(self
+            .scan()?
+            .into_iter()
+            .map(|path| match self.create_book_from_cli(cli, &path) {
+                Ok(book) => BatchInput::book(book),
+                Err(error) => BatchInput::failed(path, error.to_string()),
+            })
+            .collect())
+    }
+
+    fn create_book_from_cli(&self, cli: &Cli, path: &Path) -> Result<Book> {
+        let mut file_cli = cli.clone();
+        file_cli.filename = Some(path.to_path_buf());
+        file_cli.batch = None;
+        let mut book = load_config(&file_cli)?;
+        self.apply_filename_metadata(&mut book)?;
+        self.apply_resources(&mut book, path)?;
+        Ok(book)
+    }
+
+    fn create_default_book_config(&self, file_path: &Path) -> Result<Book> {
+        let mut book = Book {
+            filename: file_path.to_path_buf(),
+            ..Default::default()
+        };
+        self.apply_filename_metadata(&mut book)?;
+        self.apply_resources(&mut book, file_path)?;
+        Ok(book)
+    }
+
+    fn apply_filename_metadata(&self, book: &mut Book) -> Result<()> {
+        let (bookname, author) =
+            crate::utils::file::extract_bookname_from_filename(&book.filename)?;
+        if book.bookname.is_none() {
+            book.bookname = Some(bookname);
+        }
+        if book.author == "YSTYLE" {
+            if let Some(author) = author {
+                book.author = author;
             }
         }
         Ok(())
-    }
-
-    /// 为单个文件创建书籍配置
-    fn create_book_config(&self, file_path: &Path) -> Result<Option<Book>> {
-        let (bookname, author) = crate::utils::file::extract_bookname_from_filename(file_path)?;
-
-        let mut book = Book {
-            filename: file_path.to_path_buf(),
-            bookname: Some(bookname),
-            author: author.unwrap_or_else(|| "YSTYLE".to_string()),
-            ..Default::default()
-        };
-
-        // 查找封面
-        self.apply_resources(&mut book, file_path)?;
-
-        Ok(Some(book))
     }
 
     /// 应用资源（封面、CSS等）
     fn apply_resources(&self, book: &mut Book, file_path: &Path) -> Result<()> {
         let dir = file_path.parent().unwrap_or_else(|| Path::new("."));
 
-        // 查找封面
-        for name in &["cover.jpg", "cover.png", "封面.jpg", "封面.png"] {
-            let cover_path = dir.join(name);
-            if cover_path.exists() {
-                book.cover = Some(crate::model::CoverSource::Local {
-                    path: cover_path,
-                });
-                break;
+        if book.cover.is_none() {
+            for name in &[
+                "cover.jpg",
+                "cover.jpeg",
+                "cover.png",
+                "封面.jpg",
+                "封面.png",
+            ] {
+                let cover_path = dir.join(name);
+                if cover_path.is_file() {
+                    book.cover = Some(crate::model::CoverSource::Local { path: cover_path });
+                    break;
+                }
             }
         }
 
-        // 查找页眉图片文件夹
-        let header_folder = dir.join("headers");
-        if header_folder.exists() && header_folder.is_dir() {
-            book.chapter_header.image_folder = Some(header_folder);
-            book.chapter_header.mode = crate::model::HeaderMode::Folder;
+        if book.chapter_header.image.is_none() && book.chapter_header.image_folder.is_none() {
+            let header_folder = dir.join("headers");
+            if header_folder.is_dir() {
+                book.chapter_header.image_folder = Some(header_folder);
+                book.chapter_header.mode = crate::model::HeaderMode::Folder;
+            }
         }
 
         Ok(())
     }
 }
 
-/// 批量转换器
-#[allow(dead_code)]
+/// 向后兼容的批量转换器。
 pub struct BatchConverter {
-    /// 并发数
     concurrency: usize,
 }
 
-#[allow(dead_code)]
 impl BatchConverter {
-    /// 创建新的批量转换器
     pub fn new(concurrency: usize) -> Self {
         Self { concurrency }
     }
 
-    /// 执行批量转换
-    #[allow(dead_code)]
     pub async fn convert(&self, books: Vec<Book>) -> BatchResult {
-        let start = std::time::Instant::now();
-        let semaphore = Arc::new(Semaphore::new(self.concurrency));
-        let mut tasks = Vec::new();
-
-        for book in books {
-            let permit = match semaphore.clone().acquire_owned().await {
-                Ok(p) => p,
-                Err(e) => {
-                    error!("获取信号量失败: {}", e);
-                    break;
-                }
-            };
-
-            let task = tokio::spawn(async move {
-                // permit 必须在 task 内部持有，确保任务完成前信号量不被释放
-                let _permit = permit;
-                let filename = book.filename.clone();
-                let bookname = book.bookname.clone().unwrap_or_default();
-
-                info!("开始转换: {}", bookname);
-
-                match Self::convert_single(book).await {
-                    Ok(output_path) => {
-                        info!("转换成功: {} -> {:?}", bookname, output_path);
-                        Ok((filename, output_path))
-                    }
-                    Err(e) => {
-                        error!("转换失败: {} - {}", bookname, e);
-                        Err((filename, e.to_string()))
-                    }
-                }
-            });
-            tasks.push(task);
-        }
-
-        let mut result = BatchResult {
-            elapsed_secs: start.elapsed().as_secs_f64(),
-            ..Default::default()
-        };
-
-        for task in tasks {
-            match task.await {
-                Ok(Ok((input, output))) => {
-                    info!("任务完成: {:?} -> {:?}", input, output);
-                    result.success.push(output);
-                }
-                Ok(Err((input, err))) => {
-                    warn!("任务失败: {:?} - {}", input, err);
-                    result.failed.push((input, err));
-                }
-                Err(e) => {
-                    warn!("任务panic: {}", e);
-                    result.failed.push((PathBuf::from("unknown"), format!("Task panicked: {}", e)));
-                }
-            }
-        }
-
-        result
-    }
-
-    /// 转换单个书籍
-    #[allow(dead_code)]
-    async fn convert_single(book: Book) -> Result<PathBuf> {
-        let filename = book.filename.clone();
-        let output_name = book.output_name.clone().unwrap_or_else(|| {
-            book.bookname.clone().unwrap_or_else(|| "output".to_string())
+        let inputs = books
+            .iter()
+            .map(|book| book.filename.clone())
+            .collect::<Vec<_>>();
+        let converter = EnhancedBatchConverter::new(BatchConfig {
+            continue_on_error: true,
+            concurrency: self.concurrency,
+            ..BatchConfig::default()
         });
-        let output_path = filename.parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(format!("{}.epub", output_name));
 
-        // 解析文件（同步操作在阻塞线程中执行）
-        // 注意：book 的所有权移入闭包，后续生成 EPUB 需要再克隆一份
-        let book_for_epub = book.clone();
-        let sections = tokio::task::spawn_blocking(move || {
-            let mut parser = Parser::new(book);
-            parser.parse()
-        }).await.map_err(|e| {
-            crate::error::KafError::Unknown(format!("Task join error: {}", e))
-        })??;
-
-        // 生成 EPUB（使用完整的 Book 配置，而非空默认值）
-        let converter = EpubConverter3::new(book_for_epub);
-        let epub_data = converter.generate(&sections).await?;
-
-        // 写入文件
-        tokio::fs::write(&output_path, epub_data).await?;
-
-        Ok(output_path)
+        match converter.convert(books).await {
+            Ok(report) => {
+                let mut result = BatchResult {
+                    elapsed_secs: report.summary.total_duration_secs,
+                    ..BatchResult::default()
+                };
+                for file in report.files {
+                    match file.status {
+                        report::ConversionStatus::Success => {
+                            if let Some(output) = file.output_file {
+                                result.success.push(PathBuf::from(output));
+                            }
+                        }
+                        report::ConversionStatus::Failed => result.failed.push((
+                            PathBuf::from(file.input_file),
+                            file.error_message.unwrap_or_else(|| "转换失败".to_string()),
+                        )),
+                        report::ConversionStatus::Skipped => result.skipped.push((
+                            PathBuf::from(file.input_file),
+                            file.error_message.unwrap_or_else(|| "跳过转换".to_string()),
+                        )),
+                    }
+                }
+                result
+            }
+            Err(error) => BatchResult {
+                failed: inputs
+                    .into_iter()
+                    .map(|input| (input, error.to_string()))
+                    .collect(),
+                ..BatchResult::default()
+            },
+        }
     }
 }
 
@@ -262,6 +253,7 @@ mod tests {
         let result = BatchResult::default();
         assert!(result.success.is_empty());
         assert!(result.failed.is_empty());
+        assert!(result.skipped.is_empty());
     }
 
     #[test]

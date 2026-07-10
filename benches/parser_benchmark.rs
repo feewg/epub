@@ -1,8 +1,8 @@
 //! 解析器性能基准测试
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use kaf_cli::parser::Parser;
 use kaf_cli::model::Book;
+use kaf_cli::parser::Parser;
 use std::path::PathBuf;
 
 fn bench_parse_simple(c: &mut Criterion) {

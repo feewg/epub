@@ -241,8 +241,10 @@ impl Theme {
                 highlight: "#f0e68c".to_string(),
             },
             typography: Typography {
-                body_font: "'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif".to_string(),
-                heading_font: "'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif".to_string(),
+                body_font: "'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif"
+                    .to_string(),
+                heading_font: "'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif"
+                    .to_string(),
                 base_size: 20,
                 line_height: 2.0,
                 paragraph_spacing: "1.2em".to_string(),

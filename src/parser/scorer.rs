@@ -68,7 +68,9 @@ impl ScoreCalculator {
             chapter_prefixes.insert(format!("第{}节", i));
         }
 
-        let cn_numbers = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+        let cn_numbers = [
+            "零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+        ];
         for num in cn_numbers.iter() {
             chapter_prefixes.insert(format!("第{}章", num));
         }
@@ -80,7 +82,11 @@ impl ScoreCalculator {
         }
 
         let mut punctuation = HashSet::new();
-        for c in ['，', '。', '！', '？', '；', '：', ',', '.', '!', '?', ';', ':', ' '].iter() {
+        for c in [
+            '，', '。', '！', '？', '；', '：', ',', '.', '!', '?', ';', ':', ' ',
+        ]
+        .iter()
+        {
             punctuation.insert(*c);
         }
 
@@ -140,12 +146,7 @@ impl ScoreCalculator {
         0.0
     }
 
-    pub fn score_line_position(
-        &self,
-        _current_line: &str,
-        line_num: usize,
-        lines: &[&str],
-    ) -> f32 {
+    pub fn score_line_position(&self, _current_line: &str, line_num: usize, lines: &[&str]) -> f32 {
         let mut score: f32 = 0.0;
 
         if line_num > 0 && line_num < lines.len() {
@@ -192,8 +193,7 @@ impl ScoreCalculator {
         0.3
     }
 
-    pub fn score_context(
-        &self, _current_line: &str, line_num: usize, lines: &[&str]) -> f32 {
+    pub fn score_context(&self, _current_line: &str, line_num: usize, lines: &[&str]) -> f32 {
         let mut score: f32 = 0.0;
         let mut empty_before = 0;
         let mut empty_after = 0;
@@ -245,24 +245,24 @@ impl ScoreCalculator {
         let mut score: f32 = 0.0;
         let trimmed = text.trim();
 
-        let starts_with_chapter = trimmed.starts_with("第") ||
-                                 trimmed.starts_with("卷") ||
-                                 trimmed.starts_with("部") ||
-                                 trimmed.starts_with("Part") ||
-                                 trimmed.starts_with("Chapter") ||
-                                 (trimmed.len() > 2 && trimmed.chars().next().unwrap().is_ascii_digit());
+        let starts_with_chapter = trimmed.starts_with("第")
+            || trimmed.starts_with("卷")
+            || trimmed.starts_with("部")
+            || trimmed.starts_with("Part")
+            || trimmed.starts_with("Chapter")
+            || (trimmed.len() > 2 && trimmed.chars().next().unwrap().is_ascii_digit());
 
         if starts_with_chapter {
             score += 0.5;
         }
 
-        let starts_with_pronoun = trimmed.starts_with("这") ||
-                                  trimmed.starts_with("那") ||
-                                  trimmed.starts_with("我") ||
-                                  trimmed.starts_with("你") ||
-                                  trimmed.starts_with("他") ||
-                                  trimmed.starts_with("她") ||
-                                  trimmed.starts_with("它");
+        let starts_with_pronoun = trimmed.starts_with("这")
+            || trimmed.starts_with("那")
+            || trimmed.starts_with("我")
+            || trimmed.starts_with("你")
+            || trimmed.starts_with("他")
+            || trimmed.starts_with("她")
+            || trimmed.starts_with("它");
 
         if starts_with_pronoun {
             score -= 0.5;
@@ -272,7 +272,10 @@ impl ScoreCalculator {
             score -= 0.5;
         }
 
-        let punct_count = trimmed.chars().filter(|c| self.punctuation.contains(c)).count();
+        let punct_count = trimmed
+            .chars()
+            .filter(|c| self.punctuation.contains(c))
+            .count();
         let punct_ratio = punct_count as f32 / trimmed.chars().count() as f32;
         if punct_ratio < 0.3 {
             score += 0.3;
@@ -287,7 +290,12 @@ impl ScoreCalculator {
             score -= 0.2;
         }
 
-        if trimmed.contains("第") && (trimmed.contains("章") || trimmed.contains("节") || trimmed.contains("卷") || trimmed.contains("部")) {
+        if trimmed.contains("第")
+            && (trimmed.contains("章")
+                || trimmed.contains("节")
+                || trimmed.contains("卷")
+                || trimmed.contains("部"))
+        {
             score += 0.1;
         }
 
@@ -367,7 +375,8 @@ mod tests {
         assert_eq!(calc.score_length("第1章", 35), 1.0);
         assert_eq!(calc.score_length("章", 35), 0.0);
 
-        let long_text = "这个标题非常长非常长非常长非常长非常长非常长非常长非常长非常长非常长非常长";
+        let long_text =
+            "这个标题非常长非常长非常长非常长非常长非常长非常长非常长非常长非常长非常长";
         assert!(calc.score_length(long_text, 35) > 0.0);
 
         assert_eq!(calc.score_length("第一", 35), 0.8);
