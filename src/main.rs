@@ -3,7 +3,9 @@
 use clap::Parser as ClapParser;
 use kaf_cli::batch::{BatchConfig, EnhancedBatchConverter, ReportFormat};
 use kaf_cli::cli::Cli;
-use kaf_cli::config::{generate_config_examples, load_config, validate_config};
+use kaf_cli::config::{
+    generate_config_examples, load_config_tracked, validate_config, AuthorSource,
+};
 use kaf_cli::error::{KafError, Result};
 use kaf_cli::model::Book;
 use kaf_cli::parser::Parser;
@@ -34,13 +36,14 @@ async fn main() -> Result<()> {
 }
 
 async fn process_single(cli: &Cli) -> Result<()> {
-    let mut book = load_config(cli)?;
+    let loaded = load_config_tracked(cli)?;
+    let mut book = loaded.book;
     if book.filename.as_os_str().is_empty() {
         return Err(KafError::ParseError(
             "未指定文件名，请使用 --filename".to_string(),
         ));
     }
-    apply_filename_metadata(&mut book)?;
+    apply_filename_metadata(&mut book, loaded.author_source)?;
     validate_config(&book)?;
 
     let bookname = book
@@ -70,19 +73,17 @@ async fn process_single(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-fn apply_filename_metadata(book: &mut Book) -> Result<()> {
-    if book.bookname.is_none() || book.author == "YSTYLE" {
-        let (bookname, author) =
-            kaf_cli::utils::file::extract_bookname_from_filename(&book.filename)?;
-        if book.bookname.is_none() {
-            book.bookname = Some(bookname);
-        }
-        if book.author == "YSTYLE" {
-            if let Some(author) = author {
-                book.author = author;
-            }
-        }
+/// 应用文件名元数据兜底
+///
+/// - 书名：仅当未配置时从文件名提取；
+/// - 作者：仅当未被 CLI/YAML 显式配置（[`AuthorSource::Default`]）时才使用
+///   文件名中的作者，显式指定的作者（包括 `-a YSTYLE`）原样保留。
+fn apply_filename_metadata(book: &mut Book, author_source: AuthorSource) -> Result<()> {
+    let (bookname, author) = kaf_cli::utils::file::extract_bookname_from_filename(&book.filename)?;
+    if book.bookname.is_none() {
+        book.bookname = Some(bookname);
     }
+    kaf_cli::config::apply_filename_author(book, author_source, author);
     Ok(())
 }
 

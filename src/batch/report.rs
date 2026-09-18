@@ -8,12 +8,37 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+/// 本工具生成的 Markdown 报告首行自标识标记。
+///
+/// 扫描器据此识别自身生成的报告，防止 `--batch` 把上一次写入输入树的
+/// 报告再次当作书籍输入（回扫）。标记是静态常量，不含任何动态值。
+pub(crate) const REPORT_MARKER: &str = "<!-- kaf-cli batch report v1 -->";
+
+/// 将动态值转义为纯文本 Markdown。
+///
+/// 单遍逐字符处理，从原始输入直接产出，避免链式替换造成的反斜杠或
+/// HTML 实体双转义：
+/// - HTML：`&`、`<`、`>` 转为实体，杜绝文件名/配置错误中的 `<em>`、
+///   `<img>` 等原始 HTML 在报告中保持活跃；
+/// - Markdown 内联：`\`、`` ` ``、`*`、`_`、`[`、`]`、`|` 反斜杠转义，
+///   防止动态值触发强调、代码、链接/图片或表格语法；
+/// - 换行折叠为空格，防止动态值折断所在行或伪造块级结构。
 fn markdown_text(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('`', "\\`")
-        .replace('|', "\\|")
-        .replace(['\r', '\n'], " ")
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\\' | '`' | '*' | '_' | '[' | ']' | '|' => {
+                escaped.push('\\');
+                escaped.push(character);
+            }
+            '\r' | '\n' => escaped.push(' '),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 fn html_text(value: &str) -> String {
@@ -49,7 +74,11 @@ pub struct ConversionSummary {
     pub total_duration_secs: f64,
     /// 平均耗时（秒）
     pub average_duration_secs: f64,
-    /// 成功率
+    /// 成功率 = successful / (successful + failed)。
+    ///
+    /// 未发生任何实际转换尝试（attempted = successful + failed = 0，
+    /// 例如全部跳过或 dry-run）时报告 `0.0`，而不是 `1.0`：
+    /// 跳过项不代表转换成功。
     pub success_rate: f64,
 }
 
@@ -164,6 +193,10 @@ impl ReportGenerator {
     /// 生成 Markdown 报告
     fn generate_markdown(&self, report: &BatchReport) -> Result<String> {
         let mut md = String::new();
+
+        // 首行自标识标记：扫描器据此识别自身生成的报告，防止回扫。
+        md.push_str(REPORT_MARKER);
+        md.push_str("\n\n");
 
         // 标题
         md.push_str("# Batch Conversion Report\n\n");
@@ -379,13 +412,19 @@ impl ReportGenerator {
         Ok(html)
     }
 
-    /// 保存报告到文件
+    /// 保存报告到文件。
+    ///
+    /// 使用 `create_new` 创建：绝不覆盖既有文件，同秒重复生成时由调用方
+    /// 换用新文件名（见 `EnhancedBatchConverter::generate_and_save_report`）。
     pub fn save_to_file(&self, report: &BatchReport, path: &Path) -> Result<()> {
         let content = self.generate(report)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut file = fs::File::create(path)?;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
         file.write_all(content.as_bytes())?;
         Ok(())
     }

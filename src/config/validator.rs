@@ -55,10 +55,35 @@ impl ConfigValidator {
     }
 
     pub fn validate(&self, book: &Book) -> Result<()> {
+        self.validate_patterns(book)?;
         self.validate_files(book)?;
         self.validate_ranges(book)?;
         self.validate_formats(book)?;
         self.validate_consistency(book)?;
+        Ok(())
+    }
+
+    /// 前置校验章节/卷/排除正则的合法性
+    ///
+    /// 非法正则如果留到解析阶段才暴露，表现为配置通过后章节全部识别失败。
+    /// 这里在配置阶段即用与解析器相同的 `regex` crate 编译一次，
+    /// 给出含字段名、原始内容和原因的明确错误。
+    fn validate_patterns(&self, book: &Book) -> Result<()> {
+        Self::require_valid_regex(book.chapter_match.as_deref(), "chapter_match")?;
+        Self::require_valid_regex(book.volume_match.as_deref(), "volume_match")?;
+        Self::require_valid_regex(book.exclusion_pattern.as_deref(), "exclusion_pattern")?;
+        Ok(())
+    }
+
+    fn require_valid_regex(pattern: Option<&str>, field: &str) -> Result<()> {
+        let Some(pattern) = pattern else {
+            return Ok(());
+        };
+        regex::Regex::new(pattern).map_err(|error| {
+            ValidationError::InvalidValue(format!(
+                "{field} 不是合法的正则表达式: {pattern}（原因: {error}）"
+            ))
+        })?;
         Ok(())
     }
 

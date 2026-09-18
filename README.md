@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-466%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-cargo%20test-brightgreen.svg)](#-测试)
 
 ## ✨ 功能特性
 
@@ -42,7 +42,7 @@ cargo build --release
 编译后的可执行文件：`target/release/kaf-cli` (Windows: `kaf-cli.exe`)
 
 #### 系统要求
-- Rust 1.75+ 
+- Rust 1.88+（以 `Cargo.toml` 中 `rust-version` 为准）
 - 可选: Java 8+ (用于 EPUBCheck 验证)
 
 ### 基本用法
@@ -117,6 +117,29 @@ lang: "zh"
 # 高级选项
 separate_chapter_number: false  # 分离章节序号和标题
 add_tips: false                # 添加转换提示
+```
+
+### 配置优先级与作者回退
+
+- CLI 显式参数 > YAML 配置文件 > 文件名提取 > 内置默认值；
+- 作者默认值为 `YSTYLE`。显式传入 `-a YSTYLE`（包括与默认值相同的值）或
+  在 YAML 中配置 `author` 时，会原样保留，不会被文件名中的作者覆盖；
+- 仅当作者完全未被配置时，才使用文件名中的作者（如
+  `《教主的退休日常》作者：云山青.txt`）；
+- `chapter_match` / `volume_match` / `exclusion_pattern` 会在转换前校验
+  正则合法性，非法正则直接报错，不会静默丢失章节。
+
+### YAML 中的正则书写
+
+YAML 双引号字符串会处理转义序列，`\s`、`\S` 等正则序列是非法转义，会导致
+配置加载失败。包含反斜杠的正则请使用单引号（不做转义处理）：
+
+```yaml
+# 正确：单引号按字面保留 \s \S
+chapter_match: '^第.{1,15}章|^[0-9]+\s+\S+'
+
+# 正确：双引号中反斜杠需写成 \\（解析后为单个 \）
+chapter_match: "^第.{1,15}章|^[0-9]+\\s+\\S+"
 ```
 
 ### 命令行参数完整列表
@@ -207,7 +230,7 @@ kaf-rs/
 │   │   ├── file.rs          # 文件操作
 │   │   └── cover.rs         # 封面处理
 │   └── error.rs             # 错误定义
-├── tests/                   # 集成测试（gitignored）
+├── tests/                   # 已有集成测试（新增文件受 .gitignore 影响见下文说明）
 ├── benches/                 # 性能测试
 ├── docs/                    # 文档
 ├── plan/                    # 开发计划
@@ -247,11 +270,8 @@ kaf-rs/
 - ✅ 多格式支持（Markdown 解析）
 
 #### Phase 6: 测试与质量
-- ✅ 单元测试增强（129 个测试）
-- ✅ 集成测试（30 个测试）
-- ✅ 质量监控（23 个测试）
+- ✅ 单元测试与集成测试（运行 `cargo test` 查看，历史遗留的 9 个 `ignored` 过时测试不计入）
 - ✅ EPUBCheck 验证集成
-- ✅ **总计 466 个测试，全部通过**
 
 ### 🚧 Phase 7: 开源与可用性（进行中）
 - ⏳ 文档完善
@@ -262,23 +282,24 @@ kaf-rs/
 
 ### 运行测试
 ```bash
-# 所有测试
+# 所有测试（含单元测试与 tests/ 下的集成测试）
 cargo test
 
 # 仅单元测试
 cargo test --lib
 
-# 集成测试
-cargo test --test test_phase52_cover
-cargo test --test test_phase53_format
-cargo test --test test_phase61_unit
-cargo test --test test_phase62_integration
-cargo test --test test_phase63_quality
-cargo test --test test_epubcheck_validation
+# 单个集成测试（以 tests/ 目录下的实际文件名为准）
+cargo test --test config_parsers
+cargo test --test end_to_end_conversion
+cargo test --test batch_error_handling
 
 # 带输出
 cargo test -- --nocapture
 ```
+
+> 注意：`.gitignore` 中的 `test*` 规则会命中 `tests/` 目录，已受版本控制的集成测试照常执行，
+> 但该目录下新增的测试文件默认会被忽略。请勿将测试文件加入 git 仓库：
+> 新增回归测试、夹具和验证产物统一放在仓库外部工作目录中编写与执行。
 
 ### 代码质量检查
 ```bash

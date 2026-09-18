@@ -19,6 +19,28 @@ pub enum ConfigSource {
     Default,
 }
 
+/// 作者配置来源（用于决定是否允许文件名作者兜底）
+///
+/// 优先级：显式 CLI（含显式指定的默认值 YSTYLE）> YAML 配置 > 文件名 > 默认值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthorSource {
+    /// 用户在命令行显式提供（包括显式传 "YSTYLE"，必须原样保留）
+    ExplicitCli,
+    /// YAML 配置文件提供（包括 YAML 中写 "YSTYLE"，必须原样保留）
+    ConfigFile,
+    /// 未被显式配置，当前值为内置默认 "YSTYLE"，可被文件名作者覆盖
+    Default,
+}
+
+/// [`load_config_tracked`] 的返回：加载后的配置及作者来源
+#[derive(Debug)]
+pub struct LoadedConfig {
+    /// 合并完成的书籍配置
+    pub book: Book,
+    /// 作者字段的配置来源
+    pub author_source: AuthorSource,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum ConfigCover {
@@ -68,18 +90,37 @@ impl ConfigLoader {
 
     /// 从 CLI 加载配置（默认值 < 配置文件 < 显式 CLI 参数）
     pub fn load_from_cli(&self, cli: &Cli) -> Result<Book> {
+        Ok(self.load_from_cli_tracked(cli)?.book)
+    }
+
+    /// 与 [`Self::load_from_cli`] 相同的加载规则，并额外返回作者来源。
+    ///
+    /// 配置文件只读取/解析一次（不增加额外 IO）。
+    pub fn load_from_cli_tracked(&self, cli: &Cli) -> Result<LoadedConfig> {
         let mut book = Book::default();
+        let mut author_source = AuthorSource::Default;
 
         let config_path = cli
             .config
             .clone()
             .or_else(|| Self::find_config(&cli.filename));
         if let Some(path) = config_path {
-            self.load_config_file(&mut book, &path)?;
+            let (config, absolute_path) = self.read_config_file(&path)?;
+            if config.author.is_some() {
+                author_source = AuthorSource::ConfigFile;
+            }
+            self.merge_config(&mut book, config, absolute_path.parent())?;
         }
 
         self.apply_cli_config(&mut book, cli)?;
-        Ok(book)
+        // 显式 CLI 优先级最高（包括显式传入默认值 "YSTYLE"）
+        if cli.is_explicit("author") {
+            author_source = AuthorSource::ExplicitCli;
+        }
+        Ok(LoadedConfig {
+            book,
+            author_source,
+        })
     }
 
     /// 查找配置文件
@@ -98,7 +139,8 @@ impl ConfigLoader {
         None
     }
 
-    fn load_config_file(&self, book: &mut Book, path: &Path) -> Result<()> {
+    /// 读取并解析配置文件（单次 IO），返回配置内容及规范化后的绝对路径
+    fn read_config_file(&self, path: &Path) -> Result<(FileConfig, PathBuf)> {
         let absolute_path = if path.is_absolute() {
             path.to_path_buf()
         } else {
@@ -107,7 +149,7 @@ impl ConfigLoader {
         let absolute_path = std::fs::canonicalize(absolute_path)?;
         let content = fs::read_to_string(&absolute_path)?;
         let config: FileConfig = serde_yaml::from_str(&content)?;
-        self.merge_config(book, config, absolute_path.parent())
+        Ok((config, absolute_path))
     }
 
     fn merge_config(

@@ -5,7 +5,50 @@
 use crate::error::{KafError, Result};
 use crate::model::CoverSource;
 use image::ImageFormat;
+use std::io::Cursor;
 use std::path::Path;
+
+/// 解码图片时允许的最大宽度（像素）。
+///
+/// 超过该尺寸的图片（如某些超大扫描图）会在解码阶段被拒绝，
+/// 避免恶意或损坏资源在生成 EPUB 时占用过多内存。
+pub const MAX_DECODE_WIDTH: u32 = 20_000;
+
+/// 解码图片时允许的最大高度（像素）。
+pub const MAX_DECODE_HEIGHT: u32 = 20_000;
+
+/// 解码图片时允许的最大分配内存（字节），默认与 image crate 建议值一致（512 MiB）。
+pub const MAX_DECODE_ALLOC: u64 = 512 * 1024 * 1024;
+
+/// 返回图片解码使用的资源限制。
+pub fn image_limits() -> image::Limits {
+    // `image::Limits` 标记为 non_exhaustive，必须从 default 出发逐字段覆盖。
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_DECODE_WIDTH);
+    limits.max_image_height = Some(MAX_DECODE_HEIGHT);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    limits
+}
+
+/// 在资源限制内完整解码图片数据。
+///
+/// 与 `image::load_from_memory` 的区别在于显式应用宽/高/内存上限，
+/// 用于封面、正文图片、页眉图片等所有进入 EPUB 的图片校验。
+pub fn decode_image_with_limits(data: &[u8]) -> Result<image::DynamicImage> {
+    let mut reader = image::ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| KafError::CoverError(format!("无法识别图片格式: {e}")))?;
+    reader.limits(image_limits());
+    Ok(reader.decode()?)
+}
+
+/// 校验图片数据可以被完整解码（不返回像素，仅做有效性检查）。
+///
+/// 用于"仅读取头信息"路径的安全兜底：magic bytes / 尺寸头检查无法
+/// 发现截断的图片数据，只有真正解码一遍才能确认资源完整可用。
+pub fn validate_decodable(data: &[u8]) -> Result<()> {
+    decode_image_with_limits(data).map(|_| ())
+}
 
 /// 封面输出格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,8 +109,8 @@ pub fn fetch_local_cover(path: &Path) -> Result<Vec<u8>> {
     // 读取文件
     let bytes = std::fs::read(path)?;
 
-    // 验证是否为有效图片
-    let _ = image::load_from_memory(&bytes)?;
+    // 验证是否为有效图片（带资源限制的完整解码）
+    validate_decodable(&bytes)?;
 
     Ok(bytes)
 }
@@ -75,7 +118,7 @@ pub fn fetch_local_cover(path: &Path) -> Result<Vec<u8>> {
 /// 转换图片格式为 JPEG
 #[allow(dead_code)]
 pub fn convert_to_jpeg(data: &[u8]) -> Result<Vec<u8>> {
-    let img = image::load_from_memory(data)?;
+    let img = decode_image_with_limits(data)?;
 
     let mut buffer = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut buffer);
@@ -183,7 +226,7 @@ pub fn resize_cover(data: &[u8], config: &CoverConfig) -> Result<Vec<u8>> {
         scale * 100.0
     );
 
-    let img = image::load_from_memory(data)?;
+    let img = decode_image_with_limits(data)?;
     let resized = img.resize(new_width, new_height, image::imageops::FilterType::Lanczos3);
 
     // 编码输出
@@ -243,7 +286,7 @@ pub fn optimize_cover(data: &[u8], config: &CoverConfig) -> Result<(Vec<u8>, Str
         CoverOutputFormat::Jpeg if processed_format != ImageFormat::Jpeg => {
             let mut buffer = Vec::new();
             let mut cursor = std::io::Cursor::new(&mut buffer);
-            let img = image::load_from_memory(&processed)?;
+            let img = decode_image_with_limits(&processed)?;
             let encoder =
                 image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, config.quality);
             img.write_with_encoder(encoder)?;
@@ -252,7 +295,7 @@ pub fn optimize_cover(data: &[u8], config: &CoverConfig) -> Result<(Vec<u8>, Str
         CoverOutputFormat::Png if processed_format != ImageFormat::Png => {
             let mut buffer = Vec::new();
             let mut cursor = std::io::Cursor::new(&mut buffer);
-            let img = image::load_from_memory(&processed)?;
+            let img = decode_image_with_limits(&processed)?;
             img.write_to(&mut cursor, ImageFormat::Png)?;
             (buffer, "image/png".to_string())
         }

@@ -5,6 +5,36 @@
 use super::Theme;
 use crate::model::{Book, TextAlignment};
 
+/// 覆盖 `:root` 变量块中单个变量的行级替换工具。
+///
+/// `Theme::to_css_variables` 的输出按行生成（`    --name: value;`），
+/// 因此按行匹配 `--name:` 前缀即可精确替换而不影响其他变量。
+trait VariableOverride {
+    fn replace_variable(self, name: &str, value: &str) -> Self;
+}
+
+impl VariableOverride for String {
+    fn replace_variable(self, name: &str, value: &str) -> Self {
+        let prefix = format!("--{name}:");
+        let replacement = format!("    --{name}: {value};");
+        let mut replaced = false;
+        let mut lines = Vec::new();
+        for line in self.lines() {
+            if line.trim_start().starts_with(&prefix) {
+                lines.push(replacement.clone());
+                replaced = true;
+            } else {
+                lines.push(line.to_string());
+            }
+        }
+        if replaced {
+            lines.join("\n")
+        } else {
+            self
+        }
+    }
+}
+
 /// CSS 生成器
 pub struct CssGenerator;
 
@@ -18,8 +48,12 @@ impl CssGenerator {
     pub fn generate(&self, book: &Book, theme: &Theme) -> String {
         let mut css = String::new();
 
-        // 添加 CSS 变量
-        css.push_str(&theme.to_css_variables());
+        // 添加 CSS 变量。
+        // 优先级约定：用户 css_variables（由 Converter 在文件末尾追加 :root 覆盖）
+        // > Book 排版字段（line_height / paragraph_spacing / indent）> 主题默认值。
+        // 因此这里的 :root 已把 Book 字段合成为生效值，规则体统一引用 var()。
+        let variables = Self::effective_variables(book, theme);
+        css.push_str(&variables);
         css.push_str("\n\n");
 
         // 添加基础样式
@@ -35,6 +69,23 @@ impl CssGenerator {
         css.push_str(&self.generate_special_styles(theme));
 
         css
+    }
+
+    /// 生成合成 Book 排版字段后的 CSS 变量块。
+    fn effective_variables(book: &Book, theme: &Theme) -> String {
+        let line_height = Self::effective_line_height(book, theme);
+        theme
+            .to_css_variables()
+            .replace_variable("line-height", &line_height)
+            .replace_variable("paragraph-spacing", &book.paragraph_spacing)
+            .replace_variable("paragraph-indent", &format!("{}em", book.indent))
+    }
+
+    /// 正文行高：Book.line_height 优先，未设置时使用主题默认。
+    fn effective_line_height(book: &Book, theme: &Theme) -> String {
+        book.line_height
+            .clone()
+            .unwrap_or_else(|| theme.typography.line_height.to_string())
     }
 
     /// 生成基础样式
@@ -135,20 +186,21 @@ h5, h6 {{
     }
 
     /// 生成段落样式
+    ///
+    /// 全部通过 var() 引用 `:root` 变量（并用 Book 字段作为回退值），
+    /// 使 css_variables 中的 `--line-height` / `--paragraph-spacing` /
+    /// `--paragraph-indent` 覆盖真正生效。
     fn generate_paragraph_styles(&self, book: &Book, theme: &Theme) -> String {
         let indent_em = book.indent as f32;
         let spacing = &book.paragraph_spacing;
-        let line_height = book
-            .line_height
-            .clone()
-            .unwrap_or_else(|| theme.typography.line_height.to_string());
+        let line_height = Self::effective_line_height(book, theme);
 
         format!(
             r#"/* 段落样式 */
 p {{
-    margin-bottom: {};
-    text-indent: {}em;
-    line-height: {};
+    margin-bottom: var(--paragraph-spacing, {spacing});
+    text-indent: var(--paragraph-indent, {indent_em}em);
+    line-height: var(--line-height, {line_height});
     orphans: 2;
     widows: 2;
 }}
@@ -166,8 +218,7 @@ p.no-indent {{
     font-weight: bold;
     color: var(--accent-color);
 }}
-"#,
-            spacing, indent_em, line_height
+"#
         )
     }
 

@@ -450,12 +450,11 @@ impl EnhancedBatchConverter {
                 / total_files as f64
         };
         let attempted = successful + failed;
+        // skipped 不计入分母；无任何实际转换尝试（attempted=0，例如
+        // dry-run 或全部为空文件/停止条件跳过）时成功率报告 0.0，
+        // 而不是把“全部跳过”当成 100% 成功。
         let success_rate = if attempted == 0 {
-            if skipped > 0 {
-                1.0
-            } else {
-                0.0
-            }
+            0.0
         } else {
             successful as f64 / attempted as f64
         };
@@ -502,6 +501,10 @@ impl EnhancedBatchConverter {
             .sort_by(|left, right| left.message.cmp(&right.message));
     }
 
+    /// 生成并保存报告，返回报告路径。
+    ///
+    /// 使用 `create_new` 语义写入：同一秒内重复生成或并发生成时依次
+    /// 追加 ` (1)`、` (2)` … 后缀，绝不覆盖既有报告文件。
     pub fn generate_and_save_report(
         &self,
         report: &BatchReport,
@@ -509,14 +512,28 @@ impl EnhancedBatchConverter {
         output_dir: &Path,
     ) -> Result<PathBuf> {
         fs::create_dir_all(output_dir)?;
-        let filename = format!(
-            "batch_report_{}.{}",
-            chrono::Utc::now().format("%Y%m%d_%H%M%S"),
-            format.extension()
-        );
-        let path = output_dir.join(filename);
-        ReportGenerator::new(format).save_to_file(report, &path)?;
-        Ok(path)
+        let generator = ReportGenerator::new(format);
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        for suffix in 0..=10_000usize {
+            let filename = if suffix == 0 {
+                format!("batch_report_{timestamp}.{}", format.extension())
+            } else {
+                format!("batch_report_{timestamp} ({suffix}).{}", format.extension())
+            };
+            let path = output_dir.join(filename);
+            match generator.save_to_file(report, &path) {
+                Ok(()) => return Ok(path),
+                Err(KafError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // 同秒/并发重跑：尝试下一个名字，保留既有报告
+                    continue;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(KafError::ParseError(format!(
+            "无法在 {} 下分配唯一的报告文件名",
+            output_dir.display()
+        )))
     }
 }
 

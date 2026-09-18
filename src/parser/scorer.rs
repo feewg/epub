@@ -1,5 +1,10 @@
 use std::collections::HashSet;
 
+/// 句末标点集合：前行守卫与评分共用，保证两者判定一致。
+pub(crate) const SENTENCE_ENDINGS: [char; 13] = [
+    '。', '！', '？', '.', '!', '?', '"', '”', '…', '」', '』', '）', ')',
+];
+
 #[derive(Debug, Clone)]
 pub struct ScoringFactors {
     pub regex_weight: f32,
@@ -112,7 +117,8 @@ impl ScoreCalculator {
 
     pub fn score_regex_match(&self, text: &str, pattern: Option<&str>) -> f32 {
         if let Some(pattern) = pattern {
-            if let Ok(re) = regex::Regex::new(pattern) {
+            // 复用章节检测器的正则缓存，避免评分时反复编译同一模式
+            if let Ok(re) = super::chapter_detector::compile_custom_pattern(pattern) {
                 if re.is_match(text) {
                     return 1.0;
                 }
@@ -143,6 +149,61 @@ impl ScoreCalculator {
             }
         }
 
+        self.score_default_rule(text.trim())
+    }
+
+    /// 与 `model::DEFAULT_CHAPTER_MATCH` 对齐的默认形态评分：
+    /// 覆盖 序章/楔子/引子/番外/章节目录/最终章/完本感言/Section/Page/Chapter（含大小写混合）/数字章 等。
+    ///
+    /// 数字行刻意给低分（0.2）：独立成章的数字标题可依靠位置/上下文得分通过阈值，
+    /// 而夹在正文流中的数字噪声（如论坛残留的编号）会因缺少空行分隔被拒绝。
+    fn score_default_rule(&self, text: &str) -> f32 {
+        let count = text.chars().count();
+
+        // 独立数字行：^\d{1,4}$ 或 ^\d+、$
+        let digits = text.strip_suffix('、').unwrap_or(text);
+        if !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+            return if digits.len() <= 4 || text.ends_with('、') {
+                0.2
+            } else {
+                0.0
+            };
+        }
+
+        if text == "引子" || text == "楔子" || text == "序章" || text == "番外" {
+            return 0.9;
+        }
+
+        // Chapter/Section/Page：大小写不敏感（保留旧检测器行为），整行长度与默认正则一致
+        for marker in ["Chapter", "Section", "Page"] {
+            let prefix = text.get(..marker.len());
+            if let Some(prefix) = prefix {
+                if prefix.eq_ignore_ascii_case(marker) && count <= marker.len() + 21 {
+                    return 0.7;
+                }
+            }
+        }
+
+        if text.starts_with("最终章") && count <= 24 {
+            return 0.7;
+        }
+
+        if text.starts_with("完本感言") && count <= 8 {
+            return 0.9;
+        }
+
+        if text.starts_with("序章") || text.starts_with("番外") || text.starts_with("章节") {
+            return 0.3;
+        }
+
+        // 第N回/集/幕/卷/部（第N章/节 已由前缀扫描覆盖）
+        let chars: Vec<char> = text.chars().collect();
+        if let Some((marker, _)) = super::chapter_detector::leading_chapter_marker(&chars) {
+            if "回集幕卷部".contains(marker) {
+                return 0.3;
+            }
+        }
+
         0.0
     }
 
@@ -154,8 +215,7 @@ impl ScoreCalculator {
             if prev_line.is_empty() {
                 score += 0.6;
             } else {
-                let sentence_endings = ['。', '！', '？', '.', '!', '?', '"', '”'];
-                if prev_line.ends_with(sentence_endings) {
+                if prev_line.ends_with(SENTENCE_ENDINGS) {
                     score += 0.4;
                 } else {
                     return 0.0;
@@ -175,22 +235,23 @@ impl ScoreCalculator {
         score.min(1.0)
     }
 
-    pub fn score_length(&self, text: &str, _max_title_length: usize) -> f32 {
+    /// 标题长度评分：超过 `max_title_length` 的行给诊断性低分（检测层会直接拒绝该行）。
+    pub fn score_length(&self, text: &str, max_title_length: usize) -> f32 {
         let len = text.trim().chars().count();
 
         if len < 2 {
             return 0.0;
         }
 
-        if (3..=20).contains(&len) {
-            return 1.0;
-        } else if (2..=50).contains(&len) {
-            return 0.8;
-        } else if (51..=100).contains(&len) {
-            return 0.6;
+        if len > max_title_length {
+            return 0.2;
         }
 
-        0.3
+        if (3..=20).contains(&len) {
+            1.0
+        } else {
+            0.8
+        }
     }
 
     pub fn score_context(&self, _current_line: &str, line_num: usize, lines: &[&str]) -> f32 {
